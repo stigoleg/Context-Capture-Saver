@@ -1,0 +1,20 @@
+{
+  "name": "context-capture-saver",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "node --check src/background.js && node --check src/content.js && node --check src/options.js && node --check src/schema.js && node --check src/storage.js && node --check src/processing.js && node --check src/popup.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/**/*.test.js",
+    "check": "node --check src/background.js && node --check src/content.js && node --check src/options.js && node --check src/schema.js && node --check src/storage.js && node --check src/processing.js && node --check src/popup.js",
+    "build": "rm -rf dist && mkdir -p dist && cp -R manifest.json src README.md package.json package-lock.json dist/ && cd dist && zip -r context-capture-saver.zip . -x context-capture-saver.zip"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "pako": "^2.1.0",
+    "pdfjs-dist": "^5.4.624",
+    "sql.js": "^1.14.0"
+  }
+}

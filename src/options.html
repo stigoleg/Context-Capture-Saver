@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Context Capture Saver Settings</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="card">
+        <h1>Context Capture Saver</h1>
+        <p>
+          Choose the folder where capture JSON files should be stored.
+          You can change this at any time.
+        </p>
+
+        <div class="status" id="folderStatus">No folder selected.</div>
+
+        <div class="actions">
+          <button id="chooseFolderButton">Choose folder</button>
+          <button id="testWriteButton">Test write</button>
+          <button id="clearFolderButton" class="ghost">Clear folder</button>
+        </div>
+
+        <hr />
+
+        <h2>Storage Format</h2>
+        <p>Choose how captures are stored on disk.</p>
+
+        <label class="field checkbox">
+          <input id="storageBackendJson" type="radio" name="storageBackend" value="json" />
+          <span>JSON files (default)</span>
+        </label>
+
+        <label class="field checkbox">
+          <input id="storageBackendSqlite" type="radio" name="storageBackend" value="sqlite" />
+          <span>SQLite database (stored as <code>context-captures.sqlite</code>)</span>
+        </label>
+
+        <section id="folderOrganizationSection">
+          <h2>Folder Organization</h2>
+          <p>Optional folder grouping for JSON captures.</p>
+
+          <label class="field checkbox">
+            <input id="organizeByDateInput" type="checkbox" />
+            <span>Group by date (YYYY-MM-DD)</span>
+          </label>
+
+          <label class="field checkbox">
+            <input id="organizeByTypeInput" type="checkbox" />
+            <span>Group by capture type</span>
+          </label>
+
+          <label class="field">
+            <span>Folder order</span>
+            <select id="organizeOrderSelect">
+              <option value="type_date">Create /Type/Date folders (default)</option>
+              <option value="date_type">Create /Date/Type folders</option>
+            </select>
+          </label>
+
+          <p class="hint">Folder organization applies to JSON mode only.</p>
+        </section>
+
+        <hr />
+
+        <h2>Large Content Handling</h2>
+        <p>Full content is always captured. Compression can reduce storage size for large captures.</p>
+
+        <label class="field checkbox">
+          <input id="compressLargeTextInput" type="checkbox" />
+          <span>Compress large document text using gzip when available</span>
+        </label>
+
+        <label class="field">
+          <span>Compression threshold characters</span>
+          <input id="compressionThresholdInput" type="number" min="1000" step="1000" />
+        </label>
+
+        <div class="actions">
+          <button id="saveSettingsButton">Save capture settings</button>
+        </div>
+
+        <p class="hint">
+          Shortcuts: <code>Shift+Cmd+D</code> (save content) and <code>Shift+Cmd+C</code> (save with comment) on macOS. Use
+          <code>Ctrl+Shift+D</code> and <code>Ctrl+Shift+C</code> on other platforms.
+        </p>
+      </section>
+    </main>
+
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>

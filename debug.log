@@ -1,0 +1,27 @@
+debug 2026/02/18 10:49:22 darwin: started keep alive; pmset assertions bytes=2428
+debug 2026/02/18 10:49:22 darwin: active method: caffeinate+pmset
+debug 2026/02/18 10:49:22 keeper: started (timed=15m0s)
+debug 2026/02/18 10:49:43 darwin: idle detected (12.398150875s); simulated natural user activity
+debug 2026/02/18 10:50:03 darwin: idle detected (19.895427208s); simulated natural user activity
+debug 2026/02/18 10:50:24 darwin: idle detected (19.948251375s); simulated natural user activity
+debug 2026/02/18 10:50:43 darwin: idle detected (19.941565416s); simulated natural user activity
+debug 2026/02/18 10:51:03 darwin: idle detected (19.952192708s); simulated natural user activity
+debug 2026/02/18 10:51:23 darwin: idle detected (19.946168625s); simulated natural user activity
+debug 2026/02/18 10:51:43 darwin: idle detected (19.955099708s); simulated natural user activity
+debug 2026/02/18 10:52:03 darwin: idle detected (19.950316666s); simulated natural user activity
+debug 2026/02/18 10:52:23 darwin: idle detected (19.955383s); simulated natural user activity
+debug 2026/02/18 10:52:43 darwin: idle detected (19.9494695s); simulated natural user activity
+debug 2026/02/18 10:53:03 darwin: idle detected (19.951601416s); simulated natural user activity
+debug 2026/02/18 10:53:23 darwin: idle detected (19.948712125s); simulated natural user activity
+debug 2026/02/18 10:53:43 darwin: idle detected (19.961547708s); simulated natural user activity
+debug 2026/02/18 10:54:04 darwin: idle detected (19.945092541s); simulated natural user activity
+debug 2026/02/18 10:54:24 darwin: idle detected (19.951377541s); simulated natural user activity
+debug 2026/02/18 10:54:43 darwin: idle detected (19.949946541s); simulated natural user activity
+debug 2026/02/18 10:55:04 darwin: idle detected (19.94754075s); simulated natural user activity
+debug 2026/02/18 10:55:23 darwin: idle detected (19.947807916s); simulated natural user activity
+debug 2026/02/18 10:57:46 darwin: caffeinate process (pid 7300) terminated cleanly
+debug 2026/02/18 10:57:46 darwin: all goroutines completed
+debug 2026/02/18 10:57:46 darwin: verified caffeinate process (pid 7300) has terminated
+debug 2026/02/18 10:57:46 darwin: stopped; cleanup complete
+debug 2026/02/18 10:57:46 keeper: stopped
+debug 2026/02/18 10:57:46 Cleanup completed successfully

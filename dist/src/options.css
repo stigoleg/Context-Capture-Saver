@@ -1,0 +1,153 @@
+:root {
+  --bg: #f5f7fb;
+  --card: #ffffff;
+  --text: #11213a;
+  --muted: #4d5a73;
+  --accent: #1455cc;
+  --accent-strong: #0f46ab;
+  --border: #d5deed;
+  --ok: #0f7a42;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at top, #edf3ff 0%, var(--bg) 50%);
+  min-height: 100vh;
+}
+
+.layout {
+  width: min(760px, 92vw);
+  margin: 48px auto;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 18px 48px rgba(19, 40, 79, 0.08);
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 1.8rem;
+}
+
+p {
+  margin: 0 0 16px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+h2 {
+  margin: 12px 0 8px;
+  font-size: 1.2rem;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 20px 0;
+}
+
+.status {
+  margin-bottom: 16px;
+  background: #e9f9f0;
+  border: 1px solid #b8e5cb;
+  color: var(--ok);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.field span {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.field input[type="number"] {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+}
+
+.field select {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: #fff;
+}
+
+.field.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  transition: background 120ms ease-in;
+}
+
+button:hover {
+  background: var(--accent-strong);
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.hint {
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+
+code {
+  background: #eef2fa;
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+@media (max-width: 600px) {
+  .layout {
+    margin: 20px auto;
+  }
+
+  .card {
+    padding: 20px;
+    border-radius: 12px;
+  }
+
+  h1 {
+    font-size: 1.45rem;
+  }
+}
