@@ -15,8 +15,14 @@ function buildSample(overrides = {}) {
       metadata: {}
     },
     content: {
-      selectedText: "selected",
-      documentText: "full document text"
+      documentText: "full document text",
+      annotations: [
+        {
+          selectedText: "selected",
+          comment: "note",
+          createdAt: "2026-02-18T00:00:00.000Z"
+        }
+      ]
     },
     diagnostics: {},
     ...overrides

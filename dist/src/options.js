@@ -162,8 +162,8 @@ async function testWrite() {
         }
       },
       content: {
-        selectedText: null,
         documentText: "Settings test write successful.",
+        annotations: null,
         transcriptText: null,
         transcriptSegments: null
       }

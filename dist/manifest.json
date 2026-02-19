@@ -34,7 +34,8 @@
       "js": [
         "src/content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "commands": {
@@ -43,14 +44,14 @@
         "default": "Ctrl+Shift+D",
         "mac": "Shift+Command+D"
       },
-      "description": "Save page content (selection optional)"
+      "description": "Save page content (or transcript on YouTube)"
     },
     "save-selection-with-comment": {
       "suggested_key": {
         "default": "Ctrl+Shift+C",
         "mac": "Shift+Command+C"
       },
-      "description": "Save page content with a comment"
+      "description": "Save page content with a note (or transcript on YouTube)"
     }
   },
   "options_page": "src/options.html"

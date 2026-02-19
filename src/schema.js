@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = "1.2.0";
+export const SCHEMA_VERSION = "1.3.0";
 
 export function buildCaptureRecord({ captureType, source, content, diagnostics = {} }) {
   return {
@@ -15,11 +15,10 @@ export function buildCaptureRecord({ captureType, source, content, diagnostics =
       metadata: source?.metadata || {}
     },
     content: {
-      selectedText: content?.selectedText ?? null,
       documentText: content?.documentText ?? null,
       documentTextParts: content?.documentTextParts ?? null,
       documentTextCompressed: content?.documentTextCompressed ?? null,
-      comment: content?.comment ?? null,
+      annotations: content?.annotations ?? null,
       transcriptText: content?.transcriptText ?? null,
       transcriptSegments: content?.transcriptSegments ?? null
     },

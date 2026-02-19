@@ -1,6 +1,7 @@
 const statusLine = document.getElementById("statusLine");
 const saveSelectionButton = document.getElementById("saveSelectionButton");
 const saveTranscriptButton = document.getElementById("saveTranscriptButton");
+const saveTranscriptCommentButton = document.getElementById("saveTranscriptCommentButton");
 const openSettingsButton = document.getElementById("openSettingsButton");
 const shortcutHint = document.getElementById("shortcutHint");
 
@@ -13,17 +14,55 @@ function formatStatus(status) {
     return "No captures yet.";
   }
 
+  const kindLabels = {
+    selection: "content",
+    selection_with_note: "content + note",
+    youtube_transcript: "transcript",
+    transcript_with_note: "transcript + note",
+    selection_with_comment: "content + note"
+  };
+  const kindLabel = kindLabels[status.kind] || status.kind;
   const time = new Date(status.timestamp).toLocaleString();
   if (status.ok) {
-    return `Last capture OK (${status.kind}) at ${time}${status.fileName ? `\n${status.fileName}` : ""}`;
+    return `Last capture OK (${kindLabel}) at ${time}${
+      status.fileName ? `\n${status.fileName}` : ""
+    }`;
   }
 
-  return `Last capture failed (${status.kind}) at ${time}\n${status.error || "Unknown error"}`;
+  return `Last capture failed (${kindLabel}) at ${time}\n${status.error || "Unknown error"}`;
 }
 
 async function refreshStatus() {
   const response = await chrome.runtime.sendMessage({ type: "GET_LAST_CAPTURE_STATUS" });
   statusLine.textContent = formatStatus(response?.status || null);
+}
+
+function isYouTubeUrl(rawUrl) {
+  if (!rawUrl) {
+    return false;
+  }
+  try {
+    const { hostname } = new URL(rawUrl);
+    return hostname === "youtube.com" || hostname.endsWith(".youtube.com") || hostname === "youtu.be";
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function refreshButtons() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const url = tabs[0]?.url || "";
+  const isYouTube = isYouTubeUrl(url);
+
+  if (isYouTube) {
+    saveSelectionButton.style.display = "none";
+    saveTranscriptButton.style.display = "block";
+    saveTranscriptCommentButton.style.display = "block";
+  } else {
+    saveSelectionButton.style.display = "block";
+    saveTranscriptButton.style.display = "none";
+    saveTranscriptCommentButton.style.display = "none";
+  }
 }
 
 async function runCapture(kind) {
@@ -49,6 +88,12 @@ saveTranscriptButton.addEventListener("click", () => {
   });
 });
 
+saveTranscriptCommentButton.addEventListener("click", () => {
+  runCapture("youtube_transcript_with_comment").catch((error) => {
+    statusLine.textContent = error?.message || "Capture failed";
+  });
+});
+
 openSettingsButton.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
@@ -56,3 +101,5 @@ openSettingsButton.addEventListener("click", () => {
 refreshStatus().catch((error) => {
   statusLine.textContent = error?.message || "Failed to load status";
 });
+
+refreshButtons().catch(() => undefined);

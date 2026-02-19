@@ -5,20 +5,22 @@ This extension stores page content (selection optional) and YouTube transcript c
 ## Features
 
 - Right-click page or selection -> **Save content**.
-- Right-click page or selection -> **Save with comment**.
+- Right-click page or selection -> **Save with note**.
+- Right-click page or selection -> **Add highlight and note** (queue multiple highlights before saving).
+- In-page highlights panel shows queued highlight count with a **Save** button.
+- Selection bubble appears above highlighted text for quick **Add highlight** or **Add highlight and note**.
 - Keyboard shortcuts:
   - **Shift+Cmd+D** on macOS (**Ctrl+Shift+D** on other platforms) to save content.
-  - **Shift+Cmd+C** on macOS (**Ctrl+Shift+C** on other platforms) to save with a comment.
-- On YouTube pages -> right-click page -> **Save YouTube transcript**.
+  - **Shift+Cmd+C** on macOS (**Ctrl+Shift+C** on other platforms) to save with a note.
+- On YouTube pages -> right-click page -> **Save YouTube transcript** or **Save transcript with note**.
 - Popup includes:
   - quick capture buttons
   - latest capture status (success/failure)
   - one-click access to settings
 - Each JSON file includes:
-  - selected text (may be empty if nothing is selected)
   - full page text snapshot (`documentText`)
   - optional compressed document text (`documentTextCompressed`) for large captures
-  - optional user comment (`comment`)
+  - annotations array (`annotations`) containing `selectedText`, `comment` (note), and `createdAt` per note
   - title, URL
   - `savedAt`
   - `publishedAt` (best effort extraction)
@@ -28,6 +30,7 @@ This extension stores page content (selection optional) and YouTube transcript c
 - SQLite storage writes to `context-captures.sqlite` in the chosen folder.
 - Content is never truncated; large captures can be compressed instead.
 - Gzip compression is always available (built-in or bundled fallback).
+- Notes queued with **Add highlight and note** are stored in `annotations` and cleared after saving.
 
 ## Extraction Coverage
 
@@ -47,10 +50,12 @@ The extension tries to capture structured data from a wide range of sources:
 - YouTube pages:
   - transcript text and segmented timestamps when available
   - video ID and transcript availability diagnostics
+  - page HTML is not stored; only transcript content is captured
 - PDFs:
   - extracted PDF text (all pages)
   - PDF metadata when available (title, author, subject, keywords, creator, producer)
   - page count and file size
+  - annotations for highlights and notes (selection, comment, createdAt)
 
 ## Install (Load unpacked)
 

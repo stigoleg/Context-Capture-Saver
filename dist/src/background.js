@@ -11,11 +11,14 @@ import {
 
 const MENU_SAVE_SELECTION = "save-selection";
 const MENU_SAVE_WITH_COMMENT = "save-with-comment";
+const MENU_ADD_NOTE = "add-note";
 const MENU_SAVE_YOUTUBE_TRANSCRIPT = "save-youtube-transcript";
+const MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT = "save-youtube-transcript-with-comment";
 const COMMAND_SAVE_SELECTION = "COMMAND_SAVE_SELECTION";
 const COMMAND_SAVE_SELECTION_WITH_COMMENT = "COMMAND_SAVE_SELECTION_WITH_COMMENT";
 
 const commentRequests = new Map();
+const pendingAnnotationsByTab = new Map();
 const OFFSCREEN_URL = chrome.runtime.getURL("src/offscreen.html");
 const START_NOTIFICATION_ID = "capture-start";
 const ERROR_NOTIFICATION_ID = "capture-error";
@@ -26,25 +29,50 @@ async function createMenus() {
   chrome.contextMenus.create({
     id: MENU_SAVE_SELECTION,
     title: "Save content",
-    contexts: ["page", "selection"]
+    contexts: ["all"]
   });
 
   chrome.contextMenus.create({
     id: MENU_SAVE_WITH_COMMENT,
-    title: "Save with comment",
-    contexts: ["page", "selection"]
+    title: "Save with note",
+    contexts: ["all"]
+  });
+
+  chrome.contextMenus.create({
+    id: MENU_ADD_NOTE,
+    title: "Add highlight and note",
+    contexts: ["all"]
   });
 
   chrome.contextMenus.create({
     id: MENU_SAVE_YOUTUBE_TRANSCRIPT,
     title: "Save YouTube transcript",
-    contexts: ["page"],
-    documentUrlPatterns: ["https://www.youtube.com/*"]
+    contexts: ["all"],
+    visible: false
+  });
+
+  chrome.contextMenus.create({
+    id: MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT,
+    title: "Save transcript with note",
+    contexts: ["all"],
+    visible: false
   });
 }
 
 function getActiveTab() {
   return chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => tabs[0] || null);
+}
+
+function isYouTubeUrl(rawUrl) {
+  if (!rawUrl) {
+    return false;
+  }
+  try {
+    const { hostname } = new URL(rawUrl);
+    return hostname === "youtube.com" || hostname.endsWith(".youtube.com") || hostname === "youtu.be";
+  } catch (_error) {
+    return false;
+  }
 }
 
 async function setBadge(tabId, text, color) {
@@ -96,6 +124,192 @@ async function readSelectionFromPage(tabId) {
     return "";
   }
   return "";
+}
+
+async function readSelectionWithClipboard(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: async () => {
+        const direct = window.getSelection()?.toString() || "";
+        if (direct && direct.trim()) {
+          return direct.trim();
+        }
+        try {
+          const copied = document.execCommand("copy");
+          if (copied && navigator.clipboard?.readText) {
+            const text = await navigator.clipboard.readText();
+            return String(text || "").trim();
+          }
+        } catch (_error) {
+          return "";
+        }
+        return "";
+      }
+    });
+    if (!Array.isArray(results)) {
+      return "";
+    }
+    for (const item of results) {
+      const value = item?.result;
+      if (value && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+  } catch (_error) {
+    return "";
+  }
+  return "";
+}
+
+async function resolveSelection(tabId, selectionOverride = "") {
+  const trimmedOverride = selectionOverride.trim();
+  if (trimmedOverride) {
+    return trimmedOverride;
+  }
+
+  const fromPage = await readSelectionFromPage(tabId);
+  if (fromPage) {
+    return fromPage;
+  }
+
+  const fromClipboard = await readSelectionWithClipboard(tabId);
+  if (fromClipboard) {
+    return fromClipboard;
+  }
+
+  const copied = await copySelectionFromPage(tabId);
+  if (copied) {
+    return await readClipboardTextViaOffscreen();
+  }
+
+  return "";
+}
+
+function addPendingAnnotation(tabId, annotation) {
+  const existing = pendingAnnotationsByTab.get(tabId) || [];
+  existing.push(annotation);
+  pendingAnnotationsByTab.set(tabId, existing);
+  return existing.length;
+}
+
+function takePendingAnnotations(tabId) {
+  const existing = pendingAnnotationsByTab.get(tabId);
+  if (!existing || existing.length === 0) {
+    return [];
+  }
+  pendingAnnotationsByTab.delete(tabId);
+  return existing;
+}
+
+function normalizeAnnotation(selectedText, comment) {
+  const normalizedText = (selectedText || "").trim();
+  const normalizedComment = (comment || "").trim();
+  if (!normalizedText && !normalizedComment) {
+    return null;
+  }
+  return {
+    selectedText: normalizedText,
+    comment: normalizedComment || null,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function buildAnnotations(pendingAnnotations, selectedText, comment) {
+  const combined = [...pendingAnnotations];
+  const extra = normalizeAnnotation(selectedText, comment);
+  if (extra) {
+    combined.push(extra);
+  }
+  return combined.length ? combined : null;
+}
+
+async function queueAnnotation(tabId, selectedText, comment) {
+  const annotation = normalizeAnnotation(selectedText, comment);
+  if (!annotation) {
+    return 0;
+  }
+  const count = addPendingAnnotation(tabId, annotation);
+  await notifyNotesUpdated(tabId);
+  return count;
+}
+
+async function notifyInfo(tabId, title, message) {
+  if (!tabId) {
+    return;
+  }
+
+  const payload = { title, detail: message };
+  const sent = await chrome.tabs
+    .sendMessage(tabId, { type: "SHOW_INFO_TOAST", payload })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!sent) {
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("src/notify.png"),
+      title,
+      message
+    });
+  }
+}
+
+async function notifyNotesUpdated(tabId) {
+  if (!tabId) {
+    return;
+  }
+  const count = (pendingAnnotationsByTab.get(tabId) || []).length;
+  await chrome.tabs
+    .sendMessage(tabId, { type: "NOTES_UPDATED", payload: { count } })
+    .catch(() => undefined);
+}
+
+async function clearNotesPanel(tabId) {
+  if (!tabId) {
+    return;
+  }
+  await chrome.tabs.sendMessage(tabId, { type: "CLEAR_PENDING_NOTES" }).catch(() => undefined);
+}
+
+async function handleAddNote(tabId, selectionOverride = "") {
+  const capture = await captureFromTab(tabId, "CAPTURE_SELECTION_WITH_COMMENT");
+    if (!capture?.ok) {
+  if (capture?.missingReceiver) {
+    const comment = await requestCommentFromExtension();
+    if (comment === null) {
+      return;
+    }
+    const selection = await resolveSelection(tabId, selectionOverride);
+    const count = await queueAnnotation(tabId, selection, comment);
+    if (count > 0) {
+      await notifyInfo(
+        tabId,
+        "Highlight added",
+        `${count} highlight${count === 1 ? "" : "s"} queued.`
+      );
+    } else {
+      await notifyInfo(tabId, "No selection", "Select text to add a highlight.");
+    }
+    return;
+  }
+    throw new Error(capture?.error || "Failed to capture selection");
+  }
+
+  const selection =
+    capture.selectedText && capture.selectedText.trim()
+      ? capture.selectedText.trim()
+      : await resolveSelection(tabId, selectionOverride);
+  const count = await queueAnnotation(tabId, selection, capture.comment ?? "");
+  if (count > 0) {
+    await notifyInfo(
+      tabId,
+      "Highlight added",
+      `${count} highlight${count === 1 ? "" : "s"} queued.`
+    );
+  } else {
+    await notifyInfo(tabId, "No selection", "Select text to add a highlight.");
+  }
 }
 
 async function ensureOffscreenDocument() {
@@ -227,6 +441,50 @@ function formatStoredPath(fileName, subdirectories) {
   return `${subdirectories.join("/")}/${fileName}`;
 }
 
+function normalizeWhitespace(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function selectionMatchesParts(selection, parts, normalize = false) {
+  if (!selection || !Array.isArray(parts)) {
+    return false;
+  }
+  for (const part of parts) {
+    if (!part) {
+      continue;
+    }
+    const haystack = normalize ? normalizeWhitespace(part) : part;
+    if (haystack.includes(selection)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function resolvePdfSelection(pdfData, selectedText) {
+  const trimmed = (selectedText || "").trim();
+  if (trimmed) {
+    return { text: trimmed, source: "selection" };
+  }
+
+  const clipboard = await readClipboardTextViaOffscreen();
+  const clipTrimmed = (clipboard || "").trim();
+  if (!clipTrimmed) {
+    return { text: "", source: "none" };
+  }
+
+  if (selectionMatchesParts(clipTrimmed, pdfData?.documentTextParts)) {
+    return { text: clipTrimmed, source: "clipboard" };
+  }
+
+  const normalizedClip = normalizeWhitespace(clipTrimmed);
+  if (normalizedClip && selectionMatchesParts(normalizedClip, pdfData?.documentTextParts, true)) {
+    return { text: normalizedClip, source: "clipboard_normalized" };
+  }
+
+  return { text: "", source: "none" };
+}
+
 async function saveRecord(record) {
   const settings = await getSettings();
   const directoryHandle = await getSavedDirectoryHandle();
@@ -342,7 +600,26 @@ function resolvePdfUrl(rawUrl) {
   return rawUrl;
 }
 
-async function handlePdfCapture(tabId, comment = null, selectedText = "") {
+async function updateMenusForUrl(url) {
+  const isYouTube = isYouTubeUrl(url);
+  await Promise.all([
+    chrome.contextMenus.update(MENU_SAVE_SELECTION, { visible: !isYouTube }),
+    chrome.contextMenus.update(MENU_SAVE_WITH_COMMENT, { visible: !isYouTube }),
+    chrome.contextMenus.update(MENU_ADD_NOTE, { visible: !isYouTube }),
+    chrome.contextMenus.update(MENU_SAVE_YOUTUBE_TRANSCRIPT, { visible: isYouTube }),
+    chrome.contextMenus.update(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, { visible: isYouTube })
+  ]).catch(() => undefined);
+}
+
+async function refreshMenusForActiveTab() {
+  const tab = await getActiveTab();
+  await updateMenusForUrl(tab?.url || "");
+}
+
+async function handlePdfCapture(
+  tabId,
+  { selectedText = "", comment = "", annotations = [] } = {}
+) {
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.url) {
     throw new Error("No active tab URL");
@@ -387,6 +664,8 @@ async function handlePdfCapture(tabId, comment = null, selectedText = "") {
     pdfVersion: pdfInfo.PDFFormatVersion || null
   };
 
+  const resolvedSelection = await resolvePdfSelection(pdfData, selectedText);
+
   const record = buildCaptureRecord({
     captureType: "pdf_document",
     source: {
@@ -405,12 +684,12 @@ async function handlePdfCapture(tabId, comment = null, selectedText = "") {
       }
     },
     content: {
-      selectedText: selectedText || "",
       documentTextParts: pdfData.documentTextParts,
-      comment: comment || ""
+      annotations: buildAnnotations(annotations, resolvedSelection.text, comment)
     },
     diagnostics: {
-      missingFields: ["publishedAt"]
+      missingFields: ["publishedAt"],
+      selectionSource: resolvedSelection.source
     }
   });
 
@@ -423,11 +702,14 @@ async function notifySaved(tabId, record, fileName) {
     return;
   }
 
+  const annotations = Array.isArray(record.content?.annotations) ? record.content.annotations : [];
+  const lastAnnotation = annotations.length ? annotations[annotations.length - 1] : null;
+
   const payload = {
     captureType: record.captureType,
     title: record.source?.title || null,
-    selectedText: record.content?.selectedText ?? null,
-    comment: record.content?.comment ?? null,
+    annotationCount: annotations.length,
+    lastAnnotation,
     fileName
   };
 
@@ -487,34 +769,29 @@ async function handleSelectionSave(tabId, selectionOverride = "") {
   const capture = await captureFromTab(tabId, "CAPTURE_SELECTION");
   if (!capture?.ok) {
     if (capture?.missingReceiver) {
-      return handlePdfCapture(tabId, null, selectionOverride);
+      const selection = await resolveSelection(tabId, selectionOverride);
+      return handlePdfCapture(tabId, { selectedText: selection });
     }
     throw new Error(capture?.error || "Failed to capture selection");
   }
+  const pendingAnnotations = takePendingAnnotations(tabId);
   if (capture?.isPdf) {
-    const fallbackSelection =
-      selectionOverride && selectionOverride.trim()
-        ? selectionOverride
-        : capture.selectedText && capture.selectedText.trim()
-          ? capture.selectedText
-          : await readSelectionFromPage(tabId);
-    let resolvedSelection = fallbackSelection;
-    if (!resolvedSelection) {
-      const copied = await copySelectionFromPage(tabId);
-      if (copied) {
-        resolvedSelection = await readClipboardTextViaOffscreen();
-      }
-    }
-    return handlePdfCapture(tabId, null, resolvedSelection);
+    const resolvedSelection = await resolveSelection(
+      tabId,
+      selectionOverride || capture.selectedText || ""
+    );
+    return handlePdfCapture(tabId, {
+      selectedText: resolvedSelection,
+      annotations: pendingAnnotations
+    });
   }
 
   const record = buildCaptureRecord({
     captureType: "selected_text",
     source: capture.source,
     content: {
-      selectedText: capture.selectedText ?? "",
       documentText: capture.documentText,
-      comment: null
+      annotations: buildAnnotations(pendingAnnotations, capture.selectedText ?? "", null)
     },
     diagnostics: capture.diagnostics
   });
@@ -531,34 +808,34 @@ async function handleSelectionSaveWithComment(tabId, selectionOverride = "") {
       if (comment === null) {
         throw new Error("Comment cancelled");
       }
-      return handlePdfCapture(tabId, comment, selectionOverride);
+      const selection = await resolveSelection(tabId, selectionOverride);
+      return handlePdfCapture(tabId, { selectedText: selection, comment });
     }
     throw new Error(capture?.error || "Failed to capture selection");
   }
+  const pendingAnnotations = takePendingAnnotations(tabId);
   if (capture?.isPdf) {
-    const fallbackSelection =
-      selectionOverride && selectionOverride.trim()
-        ? selectionOverride
-        : capture.selectedText && capture.selectedText.trim()
-          ? capture.selectedText
-          : await readSelectionFromPage(tabId);
-    let resolvedSelection = fallbackSelection;
-    if (!resolvedSelection) {
-      const copied = await copySelectionFromPage(tabId);
-      if (copied) {
-        resolvedSelection = await readClipboardTextViaOffscreen();
-      }
-    }
-    return handlePdfCapture(tabId, capture.comment ?? "", resolvedSelection);
+    const resolvedSelection = await resolveSelection(
+      tabId,
+      selectionOverride || capture.selectedText || ""
+    );
+    return handlePdfCapture(tabId, {
+      selectedText: resolvedSelection,
+      comment: capture.comment ?? "",
+      annotations: pendingAnnotations
+    });
   }
 
   const record = buildCaptureRecord({
     captureType: "selected_text",
     source: capture.source,
     content: {
-      selectedText: capture.selectedText ?? "",
       documentText: capture.documentText,
-      comment: capture.comment ?? ""
+      annotations: buildAnnotations(
+        pendingAnnotations,
+        capture.selectedText ?? "",
+        capture.comment ?? ""
+      )
     },
     diagnostics: capture.diagnostics
   });
@@ -567,19 +844,25 @@ async function handleSelectionSaveWithComment(tabId, selectionOverride = "") {
   return { fileName, record: savedRecord };
 }
 
-async function handleYouTubeTranscriptSave(tabId) {
-  const capture = await captureFromTab(tabId, "CAPTURE_YOUTUBE_TRANSCRIPT");
+async function handleYouTubeTranscriptSave(tabId, withComment = false) {
+  const capture = await captureFromTab(
+    tabId,
+    withComment ? "CAPTURE_YOUTUBE_TRANSCRIPT_WITH_COMMENT" : "CAPTURE_YOUTUBE_TRANSCRIPT"
+  );
   if (!capture?.ok) {
     throw new Error(capture?.error || "Failed to capture YouTube transcript");
   }
 
+  const pendingAnnotations = takePendingAnnotations(tabId);
+  const comment = withComment ? capture.comment ?? "" : "";
   const record = buildCaptureRecord({
     captureType: "youtube_transcript",
     source: capture.source,
     content: {
-      documentText: capture.documentText,
+      documentText: capture.documentText ?? capture.transcriptText ?? "",
       transcriptText: capture.transcriptText,
-      transcriptSegments: capture.transcriptSegments
+      transcriptSegments: capture.transcriptSegments,
+      annotations: buildAnnotations(pendingAnnotations, "", comment)
     },
     diagnostics: capture.diagnostics
   });
@@ -590,6 +873,7 @@ async function handleYouTubeTranscriptSave(tabId) {
 
 async function runAction(kind, tabId, selectionOverride = "") {
   let kindLabel = "selection";
+  let resolvedKind = kind;
   try {
     if (kind === MENU_SAVE_YOUTUBE_TRANSCRIPT) {
       kindLabel = "youtube_transcript";
@@ -600,56 +884,86 @@ async function runAction(kind, tabId, selectionOverride = "") {
 
     await assertFolderAccess();
     let forceNotification = false;
+    let isYouTube = false;
     try {
       const tab = await chrome.tabs.get(tabId);
       const resolved = resolvePdfUrl(tab?.url) || tab?.url;
       forceNotification = resolved ? isLikelyPdfUrl(resolved) : false;
+      isYouTube = resolved ? isYouTubeUrl(resolved) : false;
     } catch (_error) {
       forceNotification = false;
+      isYouTube = false;
+    }
+
+    if (isYouTube) {
+      if (kind === MENU_SAVE_SELECTION || kind === COMMAND_SAVE_SELECTION) {
+        resolvedKind = MENU_SAVE_YOUTUBE_TRANSCRIPT;
+        kindLabel = "youtube_transcript";
+      }
+      if (kind === MENU_SAVE_WITH_COMMENT || kind === COMMAND_SAVE_SELECTION_WITH_COMMENT) {
+        resolvedKind = MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT;
+        kindLabel = "youtube_transcript";
+      }
     }
 
     await notifyStart(tabId, kindLabel, forceNotification);
 
-    if (kind === MENU_SAVE_SELECTION || kind === COMMAND_SAVE_SELECTION) {
+    if (resolvedKind === MENU_SAVE_SELECTION || resolvedKind === COMMAND_SAVE_SELECTION) {
       const { fileName, record } = await handleSelectionSave(tabId, selectionOverride);
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
       await setLastCaptureStatus({ ok: true, kind: "selection", fileName });
       await notifySaved(tabId, record, fileName);
+      await clearNotesPanel(tabId);
       console.info("Saved capture", fileName);
       return { ok: true, fileName };
     }
 
-    if (kind === COMMAND_SAVE_SELECTION_WITH_COMMENT) {
+    if (resolvedKind === COMMAND_SAVE_SELECTION_WITH_COMMENT) {
       kindLabel = "selection_with_comment";
       const { fileName, record } = await handleSelectionSaveWithComment(tabId, selectionOverride);
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
-      await setLastCaptureStatus({ ok: true, kind: "selection_with_comment", fileName });
+      await setLastCaptureStatus({ ok: true, kind: "selection_with_note", fileName });
       await notifySaved(tabId, record, fileName);
-      console.info("Saved capture with comment", fileName);
+      await clearNotesPanel(tabId);
+      console.info("Saved capture with note", fileName);
       return { ok: true, fileName };
     }
 
-    if (kind === MENU_SAVE_WITH_COMMENT) {
+    if (resolvedKind === MENU_SAVE_WITH_COMMENT) {
       kindLabel = "selection_with_comment";
       const { fileName, record } = await handleSelectionSaveWithComment(tabId, selectionOverride);
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
-      await setLastCaptureStatus({ ok: true, kind: "selection_with_comment", fileName });
+      await setLastCaptureStatus({ ok: true, kind: "selection_with_note", fileName });
       await notifySaved(tabId, record, fileName);
-      console.info("Saved capture with comment", fileName);
+      await clearNotesPanel(tabId);
+      console.info("Saved capture with note", fileName);
       return { ok: true, fileName };
     }
 
-    if (kind === MENU_SAVE_YOUTUBE_TRANSCRIPT) {
+    if (resolvedKind === MENU_SAVE_YOUTUBE_TRANSCRIPT) {
       kindLabel = "youtube_transcript";
-      const { fileName, record } = await handleYouTubeTranscriptSave(tabId);
+      const { fileName, record } = await handleYouTubeTranscriptSave(tabId, false);
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
       await setLastCaptureStatus({ ok: true, kind: "youtube_transcript", fileName });
       await notifySaved(tabId, record, fileName);
+      await clearNotesPanel(tabId);
       console.info("Saved capture", fileName);
+      return { ok: true, fileName };
+    }
+
+    if (resolvedKind === MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT) {
+      kindLabel = "youtube_transcript";
+      const { fileName, record } = await handleYouTubeTranscriptSave(tabId, true);
+      await setBadge(tabId, "OK", "#2e7d32");
+      chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
+      await setLastCaptureStatus({ ok: true, kind: "transcript_with_note", fileName });
+      await notifySaved(tabId, record, fileName);
+      await clearNotesPanel(tabId);
+      console.info("Saved transcript with note", fileName);
       return { ok: true, fileName };
     }
 
@@ -675,11 +989,15 @@ async function runAction(kind, tabId, selectionOverride = "") {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  createMenus().catch((error) => console.error("Failed to create context menus", error));
+  createMenus()
+    .then(refreshMenusForActiveTab)
+    .catch((error) => console.error("Failed to create context menus", error));
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  createMenus().catch((error) => console.error("Failed to create context menus", error));
+  createMenus()
+    .then(refreshMenusForActiveTab)
+    .catch((error) => console.error("Failed to create context menus", error));
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
@@ -690,6 +1008,27 @@ chrome.windows.onRemoved.addListener((windowId) => {
       break;
     }
   }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  pendingAnnotationsByTab.delete(tabId);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "loading") {
+    pendingAnnotationsByTab.delete(tabId);
+    clearNotesPanel(tabId).catch(() => undefined);
+  }
+  if (changeInfo.url) {
+    updateMenusForUrl(changeInfo.url).catch(() => undefined);
+  }
+});
+
+chrome.tabs.onActivated.addListener((info) => {
+  chrome.tabs
+    .get(info.tabId)
+    .then((tab) => updateMenusForUrl(tab?.url || ""))
+    .catch(() => undefined);
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -713,6 +1052,19 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (info.menuItemId === MENU_SAVE_YOUTUBE_TRANSCRIPT) {
     runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id).catch((error) => console.error(error));
+    return;
+  }
+
+  if (info.menuItemId === MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT) {
+    runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id).catch((error) =>
+      console.error(error)
+    );
+    return;
+  }
+
+  if (info.menuItemId === MENU_ADD_NOTE) {
+    const selectionOverride = info.selectionText || "";
+    handleAddNote(tab.id, selectionOverride).catch((error) => console.error(error));
   }
 });
 
@@ -734,7 +1086,77 @@ chrome.commands.onCommand.addListener(async (command) => {
   runAction(COMMAND_SAVE_SELECTION_WITH_COMMENT, tab.id).catch((error) => console.error(error));
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "GET_YT_PLAYER_RESPONSE") {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "No active tab" });
+      return true;
+    }
+
+    chrome.scripting
+      .executeScript({
+        target: { tabId },
+        world: "MAIN",
+        func: () => {
+          try {
+            const win = /** @type {any} */ (window);
+            const direct =
+              win.ytInitialPlayerResponse ||
+              win.ytInitialData?.playerResponse ||
+              win.__INITIAL_PLAYER_RESPONSE__ ||
+              null;
+            if (direct) {
+              return direct;
+            }
+
+            const config = win.ytcfg?.get?.("PLAYER_VARS");
+            const embedded = config?.embedded_player_response || null;
+            if (!embedded) {
+              return null;
+            }
+            if (typeof embedded === "string") {
+              try {
+                return JSON.parse(embedded);
+              } catch (_error) {
+                return null;
+              }
+            }
+            return embedded;
+          } catch (_error) {
+            return null;
+          }
+        }
+      })
+      .then((results) => {
+        const value = Array.isArray(results) ? results[0]?.result : null;
+        sendResponse({ ok: true, playerResponse: value || null });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error?.message || "Failed to read player response" });
+      });
+    return true;
+  }
+  if (message?.type === "ADD_NOTE") {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "No active tab" });
+      return true;
+    }
+
+    queueAnnotation(tabId, message.selectedText ?? "", message.comment ?? "")
+      .then((count) => {
+        if (!count) {
+          sendResponse({ ok: false, error: "No selection to add." });
+          return;
+        }
+        sendResponse({ ok: true, count });
+      })
+      .catch((error) =>
+        sendResponse({ ok: false, error: error?.message || "Failed to add note" })
+      );
+    return true;
+  }
   if (message?.type === "COMMENT_SUBMIT") {
     const requestId = message.requestId;
     const entry = commentRequests.get(requestId);
@@ -778,6 +1200,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         if (message.kind === "youtube_transcript") {
           return runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id);
+        }
+
+        if (message.kind === "youtube_transcript_with_comment") {
+          return runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id);
         }
 
         throw new Error("Unknown capture type");

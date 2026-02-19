@@ -47,6 +47,7 @@ function ensureSchema(db) {
       documentText TEXT,
       documentTextCompressed TEXT,
       comment TEXT,
+      annotations TEXT,
       transcriptText TEXT,
       transcriptSegments TEXT,
       diagnostics TEXT
@@ -57,7 +58,20 @@ function ensureSchema(db) {
   db.run(`CREATE INDEX IF NOT EXISTS captures_type ON captures(captureType);`);
 }
 
+function ensureColumn(db, name) {
+  const result = db.exec(`PRAGMA table_info(captures);`);
+  const columns = result?.[0]?.values?.map((row) => row[1]) || [];
+  if (!columns.includes(name)) {
+    db.run(`ALTER TABLE captures ADD COLUMN ${name} TEXT;`);
+  }
+}
+
+function ensureColumns(db) {
+  ensureColumn(db, "annotations");
+}
+
 function insertCapture(db, record) {
+  ensureColumns(db);
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO captures (
       id,
@@ -74,10 +88,11 @@ function insertCapture(db, record) {
       documentText,
       documentTextCompressed,
       comment,
+      annotations,
       transcriptText,
       transcriptSegments,
       diagnostics
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   stmt.run([
@@ -95,6 +110,7 @@ function insertCapture(db, record) {
     record.content?.documentText ?? null,
     encodeJson(record.content?.documentTextCompressed ?? null),
     record.content?.comment ?? null,
+    encodeJson(record.content?.annotations ?? null),
     record.content?.transcriptText ?? null,
     encodeJson(record.content?.transcriptSegments ?? null),
     encodeJson(record.diagnostics ?? null)
