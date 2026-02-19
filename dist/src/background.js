@@ -486,6 +486,16 @@ function findSelectionBounds(documentText, selectedText) {
     };
   }
 
+  const lowerDocument = documentText.toLowerCase();
+  const lowerSelection = selectedText.toLowerCase();
+  const lowerStart = lowerDocument.indexOf(lowerSelection);
+  if (lowerStart >= 0) {
+    return {
+      start: lowerStart,
+      end: lowerStart + selectedText.length
+    };
+  }
+
   const tokens = selectedText
     .split(/\s+/)
     .map((token) => token.trim())
@@ -497,9 +507,9 @@ function findSelectionBounds(documentText, selectedText) {
 
   const first = tokens[0];
   const last = tokens[tokens.length - 1];
-  let cursor = documentText.indexOf(first);
+  let cursor = lowerDocument.indexOf(first.toLowerCase());
   while (cursor >= 0) {
-    const tail = documentText.indexOf(last, cursor + first.length);
+    const tail = lowerDocument.indexOf(last.toLowerCase(), cursor + first.length);
     if (tail < 0) {
       break;
     }
@@ -509,7 +519,7 @@ function findSelectionBounds(documentText, selectedText) {
         end: tail + last.length
       };
     }
-    cursor = documentText.indexOf(first, cursor + 1);
+    cursor = lowerDocument.indexOf(first.toLowerCase(), cursor + 1);
   }
 
   return null;
@@ -538,9 +548,11 @@ function expandSelectionToFullSentences(selectedText, documentText) {
 }
 
 function normalizeAnnotation(selectedText, comment, options = {}) {
+  const MAX_ANNOTATION_TEXT_CHARS = 12000;
+  const MAX_ANNOTATION_COMMENT_CHARS = 4000;
   const expandedText = expandSelectionToFullSentences(selectedText || "", options.documentText || "");
-  const normalizedText = expandedText.trim();
-  const normalizedComment = (comment || "").trim();
+  const normalizedText = expandedText.trim().slice(0, MAX_ANNOTATION_TEXT_CHARS);
+  const normalizedComment = (comment || "").trim().slice(0, MAX_ANNOTATION_COMMENT_CHARS);
   if (!normalizedText && !normalizedComment) {
     return null;
   }
@@ -559,12 +571,18 @@ function normalizeAnnotation(selectedText, comment, options = {}) {
 
 function buildAnnotations(pendingAnnotations, selectedText, comment, documentText = "") {
   const combined = [];
+  const dedupe = new Set();
   for (const annotation of pendingAnnotations || []) {
     const normalized = normalizeAnnotation(annotation?.selectedText ?? "", annotation?.comment ?? "", {
       documentText,
       createdAt: annotation?.createdAt
     });
     if (normalized) {
+      const key = `${normalized.selectedText}\u241f${normalized.comment || ""}`;
+      if (dedupe.has(key)) {
+        continue;
+      }
+      dedupe.add(key);
       combined.push(normalized);
     }
   }
@@ -573,7 +591,11 @@ function buildAnnotations(pendingAnnotations, selectedText, comment, documentTex
     documentText
   });
   if (extra) {
-    combined.push(extra);
+    const key = `${extra.selectedText}\u241f${extra.comment || ""}`;
+    if (!dedupe.has(key)) {
+      dedupe.add(key);
+      combined.push(extra);
+    }
   }
   return combined.length ? combined : null;
 }

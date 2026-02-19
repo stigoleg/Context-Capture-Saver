@@ -36,7 +36,6 @@ function ensureSchema(db) {
       id TEXT PRIMARY KEY,
       schemaVersion TEXT,
       captureType TEXT,
-      fetchedAt TEXT,
       savedAt TEXT,
       sourceUrl TEXT,
       sourceTitle TEXT,
@@ -70,7 +69,6 @@ function ensureColumn(db, name) {
 
 function ensureColumns(db) {
   ensureColumn(db, "annotations");
-  ensureColumn(db, "fetchedAt");
   ensureColumn(db, "contentHash");
 }
 
@@ -81,7 +79,6 @@ function insertCapture(db, record) {
       id,
       schemaVersion,
       captureType,
-      fetchedAt,
       savedAt,
       sourceUrl,
       sourceTitle,
@@ -98,14 +95,13 @@ function insertCapture(db, record) {
       transcriptText,
       transcriptSegments,
       diagnostics
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   stmt.run([
     record.id,
     record.schemaVersion,
     record.captureType,
-    record.fetchedAt || null,
     record.savedAt,
     record.source?.url || null,
     record.source?.title || null,

@@ -34,7 +34,6 @@ test("validateCaptureRecord accepts a valid record", () => {
   const result = validateCaptureRecord(record);
   assert.equal(result.valid, true);
   assert.deepEqual(result.errors, []);
-  assert.equal(typeof record.fetchedAt, "string");
   assert.equal(typeof record.content.contentHash, "string");
 });
 

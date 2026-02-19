@@ -3,12 +3,10 @@ import { computeContentHash } from "./hash.js";
 export const SCHEMA_VERSION = "1.3.0";
 
 export function buildCaptureRecord({ captureType, source, content, diagnostics = {} }) {
-  const fetchedAt = new Date().toISOString();
   return {
     schemaVersion: SCHEMA_VERSION,
     id: crypto.randomUUID(),
     captureType,
-    fetchedAt,
     savedAt: new Date().toISOString(),
     source: {
       url: source?.url || null,
@@ -81,9 +79,6 @@ export function validateCaptureRecord(record) {
 
   if (!record.savedAt || Number.isNaN(Date.parse(record.savedAt))) {
     errors.push("savedAt must be a valid ISO datetime");
-  }
-  if (!record.fetchedAt || Number.isNaN(Date.parse(record.fetchedAt))) {
-    errors.push("fetchedAt must be a valid ISO datetime");
   }
 
   if (!record.source || typeof record.source !== "object") {
