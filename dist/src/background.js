@@ -1546,6 +1546,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true;
   }
+
+  if (message?.type === "RESOLVE_PDF_SELECTION") {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "No active tab" });
+      return true;
+    }
+
+    resolveSelection(tabId, "")
+      .then((selectedText) => {
+        sendResponse({ ok: true, selectedText: selectedText || "" });
+      })
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error?.message || "Failed to resolve selection"
+        });
+      });
+    return true;
+  }
   if (message?.type === "ADD_NOTE") {
     const tabId = sender?.tab?.id;
     if (!tabId) {

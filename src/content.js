@@ -614,8 +614,22 @@ function ensureSelectionBubble() {
   });
 
   addNoteButton.addEventListener("click", async () => {
-    const text = bubble.dataset.selectionText || "";
+    let text = normalizeText(bubble.dataset.selectionText || "");
+    if (!text && isPdfPage()) {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: "RESOLVE_PDF_SELECTION" });
+        if (response?.ok) {
+          text = normalizeText(response.selectedText || "");
+          if (text) {
+            bubble.dataset.selectionText = text;
+          }
+        }
+      } catch (_error) {
+        text = "";
+      }
+    }
     if (!text.trim()) {
+      showErrorToast("Select text in the PDF first.");
       return;
     }
     try {
@@ -638,8 +652,22 @@ function ensureSelectionBubble() {
   });
 
   addCommentButton.addEventListener("click", async () => {
-    const text = bubble.dataset.selectionText || "";
+    let text = normalizeText(bubble.dataset.selectionText || "");
+    if (!text && isPdfPage()) {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: "RESOLVE_PDF_SELECTION" });
+        if (response?.ok) {
+          text = normalizeText(response.selectedText || "");
+          if (text) {
+            bubble.dataset.selectionText = text;
+          }
+        }
+      } catch (_error) {
+        text = "";
+      }
+    }
     if (!text.trim()) {
+      showErrorToast("Select text in the PDF first.");
       return;
     }
     const comment = await requestComment();
@@ -678,6 +706,23 @@ let selectionBubbleTimer = null;
 const lastPointerPosition = { x: 0, y: 0, has: false };
 const lastClipboardSelection = { text: "", at: 0 };
 
+function positionPdfBubble(bubble) {
+  const left = lastPointerPosition.has
+    ? Math.min(Math.max(lastPointerPosition.x, 16), window.innerWidth - 16)
+    : Math.min(window.innerWidth - 24, Math.max(window.innerWidth / 2, 16));
+  const top = lastPointerPosition.has
+    ? Math.min(Math.max(lastPointerPosition.y, 24), window.innerHeight - 24)
+    : Math.min(window.innerHeight - 24, Math.max(window.innerHeight / 2, 24));
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${top}px`;
+}
+
+function showPdfSelectionBubble(selectionText = "") {
+  const bubble = ensureSelectionBubble();
+  bubble.dataset.selectionText = normalizeText(selectionText || "");
+  positionPdfBubble(bubble);
+}
+
 async function getClipboardSelection() {
   try {
     const copied = document.execCommand("copy");
@@ -710,19 +755,8 @@ function scheduleSelectionBubbleUpdate() {
       if (isPdfPage()) {
         const clipboardText =
           Date.now() - lastClipboardSelection.at < 1500 ? lastClipboardSelection.text : "";
-        if (clipboardText) {
-          const bubble = ensureSelectionBubble();
-          bubble.dataset.selectionText = clipboardText;
-          const left = lastPointerPosition.has
-            ? Math.min(Math.max(lastPointerPosition.x, 16), window.innerWidth - 16)
-            : Math.min(window.innerWidth - 24, Math.max(window.innerWidth / 2, 16));
-          const top = lastPointerPosition.has
-            ? Math.min(Math.max(lastPointerPosition.y, 24), window.innerHeight - 24)
-            : Math.min(window.innerHeight - 24, Math.max(window.innerHeight / 2, 24));
-          bubble.style.left = `${left}px`;
-          bubble.style.top = `${top}px`;
-          return;
-        }
+        showPdfSelectionBubble(clipboardText);
+        return;
       }
       hideSelectionBubble();
       return;
@@ -744,19 +778,8 @@ function scheduleSelectionBubbleUpdate() {
       if (isPdfPage()) {
         const clipboardText =
           Date.now() - lastClipboardSelection.at < 1500 ? lastClipboardSelection.text : "";
-        if (clipboardText) {
-          const bubble = ensureSelectionBubble();
-          bubble.dataset.selectionText = clipboardText;
-          const left = lastPointerPosition.has
-            ? Math.min(Math.max(lastPointerPosition.x, 16), window.innerWidth - 16)
-            : Math.min(window.innerWidth - 24, Math.max(window.innerWidth / 2, 16));
-          const top = lastPointerPosition.has
-            ? Math.min(Math.max(lastPointerPosition.y, 24), window.innerHeight - 24)
-            : Math.min(window.innerHeight - 24, Math.max(window.innerHeight / 2, 24));
-          bubble.style.left = `${left}px`;
-          bubble.style.top = `${top}px`;
-          return;
-        }
+        showPdfSelectionBubble(clipboardText);
+        return;
       }
       hideSelectionBubble();
       return;
@@ -885,7 +908,7 @@ function captureSelection() {
 }
 
 document.addEventListener("selectionchange", scheduleSelectionBubbleUpdate);
-document.addEventListener("mouseup", async (event) => {
+async function handleSelectionPointerEvent(event) {
   lastPointerPosition.x = event.clientX;
   lastPointerPosition.y = event.clientY;
   lastPointerPosition.has = true;
@@ -897,7 +920,10 @@ document.addEventListener("mouseup", async (event) => {
     }
   }
   scheduleSelectionBubbleUpdate();
-});
+}
+
+document.addEventListener("mouseup", handleSelectionPointerEvent);
+window.addEventListener("mouseup", handleSelectionPointerEvent, true);
 document.addEventListener("keyup", scheduleSelectionBubbleUpdate);
 window.addEventListener(
   "scroll",
