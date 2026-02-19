@@ -20,6 +20,7 @@ test("applyContentPolicies does not truncate document text", async () => {
   assert.equal(next.content.documentText.length, 120);
   assert.equal(next.diagnostics.contentPolicies.truncated, false);
   assert.equal(next.diagnostics.contentPolicies.compressed, false);
+  assert.equal(typeof next.content.contentHash, "string");
 });
 
 test("applyContentPolicies compresses documentTextParts without joining", async () => {
@@ -39,6 +40,7 @@ test("applyContentPolicies compresses documentTextParts without joining", async 
   assert.equal(next.content.documentText, "alpha\n\nbeta\n\ngamma");
   assert.equal(typeof next.content.documentTextCompressed?.value, "string");
   assert.equal(next.diagnostics.contentPolicies.compressed, true);
+  assert.equal(typeof next.content.contentHash, "string");
 });
 
 test("applyContentPolicies keeps document text unchanged when under limits", async () => {
@@ -59,4 +61,5 @@ test("applyContentPolicies keeps document text unchanged when under limits", asy
   assert.equal(next.content.documentText, text);
   assert.equal(next.diagnostics.contentPolicies.truncated, false);
   assert.equal(next.diagnostics.contentPolicies.documentTextOriginalLength, text.length);
+  assert.equal(typeof next.content.contentHash, "string");
 });

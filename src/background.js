@@ -1,7 +1,6 @@
 import { applyContentPolicies } from "./processing.js";
 import { buildCaptureRecord, buildFileName, validateCaptureRecord } from "./schema.js";
 import { getLastCaptureStatus, getSettings, setLastCaptureStatus } from "./settings.js";
-import { extractPdfFromUrl } from "./pdf.js";
 import { saveRecordToSqlite } from "./sqlite.js";
 import {
   ensureReadWritePermission,
@@ -23,6 +22,14 @@ const pendingAnnotationsByTab = new Map();
 const OFFSCREEN_URL = chrome.runtime.getURL("src/offscreen.html");
 const START_NOTIFICATION_ID = "capture-start";
 const ERROR_NOTIFICATION_ID = "capture-error";
+
+async function extractPdfFromModule(url, options = {}) {
+  const module = await import("./pdf.js");
+  if (!module?.extractPdfFromUrl) {
+    throw new Error("PDF extractor module unavailable");
+  }
+  return module.extractPdfFromUrl(url, options);
+}
 
 async function createMenus() {
   await chrome.contextMenus.removeAll();
@@ -438,22 +445,133 @@ function takePendingAnnotations(tabId) {
   return existing;
 }
 
-function normalizeAnnotation(selectedText, comment) {
-  const normalizedText = (selectedText || "").trim();
+function isSentenceTerminatorChar(char) {
+  return /[.!?。！？]/.test(char || "");
+}
+
+function findSentenceStart(text, fromIndex) {
+  for (let index = Math.max(0, fromIndex - 1); index >= 0; index -= 1) {
+    if (!isSentenceTerminatorChar(text[index])) {
+      continue;
+    }
+    let start = index + 1;
+    while (start < text.length && /[\s"'“”‘’)\]]/.test(text[start])) {
+      start += 1;
+    }
+    return start;
+  }
+  return 0;
+}
+
+function findSentenceEnd(text, fromIndex) {
+  for (let index = Math.max(0, fromIndex); index < text.length; index += 1) {
+    if (!isSentenceTerminatorChar(text[index])) {
+      continue;
+    }
+    let end = index + 1;
+    while (end < text.length && /["'“”‘’)\]]/.test(text[end])) {
+      end += 1;
+    }
+    return end;
+  }
+  return text.length;
+}
+
+function findSelectionBounds(documentText, selectedText) {
+  const start = documentText.indexOf(selectedText);
+  if (start >= 0) {
+    return {
+      start,
+      end: start + selectedText.length
+    };
+  }
+
+  const tokens = selectedText
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+
+  if (tokens.length < 2) {
+    return null;
+  }
+
+  const first = tokens[0];
+  const last = tokens[tokens.length - 1];
+  let cursor = documentText.indexOf(first);
+  while (cursor >= 0) {
+    const tail = documentText.indexOf(last, cursor + first.length);
+    if (tail < 0) {
+      break;
+    }
+    if (tail - cursor <= Math.max(600, selectedText.length * 4)) {
+      return {
+        start: cursor,
+        end: tail + last.length
+      };
+    }
+    cursor = documentText.indexOf(first, cursor + 1);
+  }
+
+  return null;
+}
+
+function expandSelectionToFullSentences(selectedText, documentText) {
+  const normalizedSelection = normalizeWhitespace(selectedText || "");
+  if (!normalizedSelection) {
+    return "";
+  }
+
+  const normalizedDocument = normalizeWhitespace(documentText || "");
+  if (!normalizedDocument) {
+    return normalizedSelection;
+  }
+
+  const bounds = findSelectionBounds(normalizedDocument, normalizedSelection);
+  if (!bounds) {
+    return normalizedSelection;
+  }
+
+  const start = findSentenceStart(normalizedDocument, bounds.start);
+  const end = findSentenceEnd(normalizedDocument, bounds.end);
+  const expanded = normalizeWhitespace(normalizedDocument.slice(start, end));
+  return expanded || normalizedSelection;
+}
+
+function normalizeAnnotation(selectedText, comment, options = {}) {
+  const expandedText = expandSelectionToFullSentences(selectedText || "", options.documentText || "");
+  const normalizedText = expandedText.trim();
   const normalizedComment = (comment || "").trim();
   if (!normalizedText && !normalizedComment) {
     return null;
   }
+
+  const parsedCreatedAt = Date.parse(String(options.createdAt || ""));
+  const createdAt = Number.isNaN(parsedCreatedAt)
+    ? new Date().toISOString()
+    : new Date(parsedCreatedAt).toISOString();
+
   return {
     selectedText: normalizedText,
     comment: normalizedComment || null,
-    createdAt: new Date().toISOString()
+    createdAt
   };
 }
 
-function buildAnnotations(pendingAnnotations, selectedText, comment) {
-  const combined = [...pendingAnnotations];
-  const extra = normalizeAnnotation(selectedText, comment);
+function buildAnnotations(pendingAnnotations, selectedText, comment, documentText = "") {
+  const combined = [];
+  for (const annotation of pendingAnnotations || []) {
+    const normalized = normalizeAnnotation(annotation?.selectedText ?? "", annotation?.comment ?? "", {
+      documentText,
+      createdAt: annotation?.createdAt
+    });
+    if (normalized) {
+      combined.push(normalized);
+    }
+  }
+
+  const extra = normalizeAnnotation(selectedText, comment, {
+    documentText
+  });
   if (extra) {
     combined.push(extra);
   }
@@ -1054,11 +1172,15 @@ async function handlePdfCapture(
   let pdfData;
   try {
     pdfData = await extractPdfViaOffscreen(resolvedUrl, likelyPdf);
-  } catch (_error) {
-    pdfData = await extractPdfFromUrl(resolvedUrl, {
-      allowUnknownContentType: likelyPdf,
-      disableWorker: true
-    });
+  } catch (_offscreenError) {
+    try {
+      pdfData = await extractPdfFromModule(resolvedUrl, {
+        allowUnknownContentType: likelyPdf,
+        disableWorker: true
+      });
+    } catch (_moduleError) {
+      throw new Error("PDF extraction failed in both offscreen and worker contexts.");
+    }
   }
   const url = resolvedUrl;
   let site = null;
@@ -1089,6 +1211,9 @@ async function handlePdfCapture(
   };
 
   const resolvedSelection = await resolvePdfSelection(pdfData, selectedText);
+  const pdfDocumentText = Array.isArray(pdfData?.documentTextParts)
+    ? pdfData.documentTextParts.join(" ")
+    : "";
 
   const record = buildCaptureRecord({
     captureType: "pdf_document",
@@ -1109,7 +1234,7 @@ async function handlePdfCapture(
     },
     content: {
       documentTextParts: pdfData.documentTextParts,
-      annotations: buildAnnotations(annotations, resolvedSelection.text, comment)
+      annotations: buildAnnotations(annotations, resolvedSelection.text, comment, pdfDocumentText)
     },
     diagnostics: {
       missingFields: ["publishedAt"],
@@ -1222,7 +1347,12 @@ async function handleSelectionSave(tabId, selectionOverride = "") {
     source: capture.source,
     content: {
       documentText: capture.documentText,
-      annotations: buildAnnotations(pendingAnnotations, capture.selectedText ?? "", null)
+      annotations: buildAnnotations(
+        pendingAnnotations,
+        capture.selectedText ?? "",
+        null,
+        capture.documentText || ""
+      )
     },
     diagnostics: capture.diagnostics
   });
@@ -1272,7 +1402,8 @@ async function handleSelectionSaveWithComment(tabId, selectionOverride = "") {
       annotations: buildAnnotations(
         pendingAnnotations,
         capture.selectedText ?? "",
-        capture.comment ?? ""
+        capture.comment ?? "",
+        capture.documentText || ""
       )
     },
     diagnostics: capture.diagnostics

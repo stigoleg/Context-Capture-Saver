@@ -36,6 +36,7 @@ function ensureSchema(db) {
       id TEXT PRIMARY KEY,
       schemaVersion TEXT,
       captureType TEXT,
+      fetchedAt TEXT,
       savedAt TEXT,
       sourceUrl TEXT,
       sourceTitle TEXT,
@@ -45,6 +46,7 @@ function ensureSchema(db) {
       sourceMetadata TEXT,
       selectedText TEXT,
       documentText TEXT,
+      contentHash TEXT,
       documentTextCompressed TEXT,
       comment TEXT,
       annotations TEXT,
@@ -68,6 +70,8 @@ function ensureColumn(db, name) {
 
 function ensureColumns(db) {
   ensureColumn(db, "annotations");
+  ensureColumn(db, "fetchedAt");
+  ensureColumn(db, "contentHash");
 }
 
 function insertCapture(db, record) {
@@ -77,6 +81,7 @@ function insertCapture(db, record) {
       id,
       schemaVersion,
       captureType,
+      fetchedAt,
       savedAt,
       sourceUrl,
       sourceTitle,
@@ -86,19 +91,21 @@ function insertCapture(db, record) {
       sourceMetadata,
       selectedText,
       documentText,
+      contentHash,
       documentTextCompressed,
       comment,
       annotations,
       transcriptText,
       transcriptSegments,
       diagnostics
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   stmt.run([
     record.id,
     record.schemaVersion,
     record.captureType,
+    record.fetchedAt || null,
     record.savedAt,
     record.source?.url || null,
     record.source?.title || null,
@@ -108,6 +115,7 @@ function insertCapture(db, record) {
     encodeJson(record.source?.metadata || null),
     record.content?.selectedText ?? null,
     record.content?.documentText ?? null,
+    record.content?.contentHash ?? null,
     encodeJson(record.content?.documentTextCompressed ?? null),
     record.content?.comment ?? null,
     encodeJson(record.content?.annotations ?? null),

@@ -1,4 +1,5 @@
 import * as pako from "./vendor/pako.mjs";
+import { computeContentHash } from "./hash.js";
 
 function toBase64(uint8Array) {
   let binary = "";
@@ -153,6 +154,8 @@ export async function applyContentPolicies(record, settings) {
   if (hasParts) {
     delete content.documentTextParts;
   }
+
+  content.contentHash = computeContentHash(content.documentText || "");
 
   next.content = content;
   next.diagnostics = diagnostics;
