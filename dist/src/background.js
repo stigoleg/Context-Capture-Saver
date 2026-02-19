@@ -42,13 +42,13 @@ async function createMenus() {
   chrome.contextMenus.create({
     id: MENU_ADD_HIGHLIGHT,
     title: "Add highlight",
-    contexts: ["selection"]
+    contexts: ["all"]
   });
 
   chrome.contextMenus.create({
     id: MENU_ADD_NOTE,
     title: "Add highlight and note",
-    contexts: ["selection"]
+    contexts: ["all"]
   });
 
   chrome.contextMenus.create({
@@ -607,8 +607,20 @@ async function clearNotesPanel(tabId) {
 }
 
 async function handleAddHighlight(tabId, selectionOverride = "") {
-  const selection = await resolveSelection(tabId, selectionOverride);
-  const count = await queueAnnotation(tabId, selection, "");
+  const selection = await resolveSelection(tabId, selectionOverride, {
+    allowClipboardRead: true,
+    allowClipboardCopy: true
+  });
+  const normalizedSelection = (selection || "").trim();
+  if (!normalizedSelection) {
+    await notifyInfo(
+      tabId,
+      "No selection",
+      "Select text in the PDF and right-click Add highlight. If needed, copy the text first and retry."
+    );
+    return;
+  }
+  const count = await queueAnnotation(tabId, normalizedSelection, "");
   if (count > 0) {
     await notifyInfo(
       tabId,
@@ -616,7 +628,11 @@ async function handleAddHighlight(tabId, selectionOverride = "") {
       `${count} highlight${count === 1 ? "" : "s"} queued.`
     );
   } else {
-    await notifyInfo(tabId, "No selection", "Select text to add a highlight.");
+    await notifyInfo(
+      tabId,
+      "No selection",
+      "Select text in the PDF and right-click Add highlight. If needed, copy the text first and retry."
+    );
   }
 }
 
@@ -628,8 +644,20 @@ async function handleAddNote(tabId, selectionOverride = "") {
       if (comment === null) {
         return;
       }
-      const selection = await resolveSelection(tabId, selectionOverride);
-      const count = await queueAnnotation(tabId, selection, comment);
+      const selection = await resolveSelection(tabId, selectionOverride, {
+        allowClipboardRead: true,
+        allowClipboardCopy: true
+      });
+      const normalizedSelection = (selection || "").trim();
+      if (!normalizedSelection) {
+        await notifyInfo(
+          tabId,
+          "No selection",
+          "Select text in the PDF and right-click Add highlight and note. If needed, copy the text first and retry."
+        );
+        return;
+      }
+      const count = await queueAnnotation(tabId, normalizedSelection, comment);
       if (count > 0) {
         await notifyInfo(
           tabId,
@@ -637,7 +665,11 @@ async function handleAddNote(tabId, selectionOverride = "") {
           `${count} highlight${count === 1 ? "" : "s"} queued.`
         );
       } else {
-        await notifyInfo(tabId, "No selection", "Select text to add a highlight.");
+        await notifyInfo(
+          tabId,
+          "No selection",
+          "Select text in the PDF and right-click Add highlight and note. If needed, copy the text first and retry."
+        );
       }
       return;
     }
@@ -647,8 +679,20 @@ async function handleAddNote(tabId, selectionOverride = "") {
   const selection =
     capture.selectedText && capture.selectedText.trim()
       ? capture.selectedText.trim()
-      : await resolveSelection(tabId, selectionOverride);
-  const count = await queueAnnotation(tabId, selection, capture.comment ?? "");
+      : await resolveSelection(tabId, selectionOverride, {
+          allowClipboardRead: true,
+          allowClipboardCopy: true
+        });
+  const normalizedSelection = (selection || "").trim();
+  if (!normalizedSelection) {
+    await notifyInfo(
+      tabId,
+      "No selection",
+      "Select text in the PDF and right-click Add highlight and note. If needed, copy the text first and retry."
+    );
+    return;
+  }
+  const count = await queueAnnotation(tabId, normalizedSelection, capture.comment ?? "");
   if (count > 0) {
     await notifyInfo(
       tabId,
@@ -1149,7 +1193,10 @@ async function handleSelectionSave(tabId, selectionOverride = "") {
   const capture = await captureFromTab(tabId, "CAPTURE_SELECTION");
   if (!capture?.ok) {
     if (capture?.missingReceiver) {
-      const selection = await resolveSelection(tabId, selectionOverride);
+      const selection = await resolveSelection(tabId, selectionOverride, {
+        allowClipboardRead: true,
+        allowClipboardCopy: true
+      });
       return handlePdfCapture(tabId, { selectedText: selection });
     }
     throw new Error(capture?.error || "Failed to capture selection");
@@ -1158,7 +1205,11 @@ async function handleSelectionSave(tabId, selectionOverride = "") {
   if (capture?.isPdf) {
     const resolvedSelection = await resolveSelection(
       tabId,
-      selectionOverride || capture.selectedText || ""
+      selectionOverride || capture.selectedText || "",
+      {
+        allowClipboardRead: true,
+        allowClipboardCopy: true
+      }
     );
     return handlePdfCapture(tabId, {
       selectedText: resolvedSelection,
@@ -1188,7 +1239,10 @@ async function handleSelectionSaveWithComment(tabId, selectionOverride = "") {
       if (comment === null) {
         throw new Error("Comment cancelled");
       }
-      const selection = await resolveSelection(tabId, selectionOverride);
+      const selection = await resolveSelection(tabId, selectionOverride, {
+        allowClipboardRead: true,
+        allowClipboardCopy: true
+      });
       return handlePdfCapture(tabId, { selectedText: selection, comment });
     }
     throw new Error(capture?.error || "Failed to capture selection");
@@ -1197,7 +1251,11 @@ async function handleSelectionSaveWithComment(tabId, selectionOverride = "") {
   if (capture?.isPdf) {
     const resolvedSelection = await resolveSelection(
       tabId,
-      selectionOverride || capture.selectedText || ""
+      selectionOverride || capture.selectedText || "",
+      {
+        allowClipboardRead: true,
+        allowClipboardCopy: true
+      }
     );
     return handlePdfCapture(tabId, {
       selectedText: resolvedSelection,
