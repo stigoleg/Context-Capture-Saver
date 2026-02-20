@@ -1,29 +1,43 @@
 # Context Capture Saver
 
-Save web content, highlights, PDF text, and YouTube transcripts to your own local folder.
+Capture the useful part of web pages, PDFs, and YouTube transcripts to local files you control.
 
-This extension is built for people who research online and want clean, structured captures they can keep, search, and process later.
+Context Capture Saver is built for research and AI workflows where you need clean, structured content without copy/paste noise.
 
-## What You Can Do
+## Why Use It
 
-- Save full page captures from normal websites.
-- Save with or without notes.
-- Queue multiple highlights before saving.
-- Capture YouTube transcripts (with optional timestamp segments).
-- Capture PDF text and metadata.
-- Store output as JSON files or in a local SQLite database.
+- Save the main content from pages, not just raw HTML.
+- Keep highlights and notes together with the capture.
+- Store data locally in JSON or SQLite.
+- Export content that is ready for AI agents and downstream processing.
+
+## Core Features
+
+- Website capture with cleaned article-focused text.
+- Save content with or without notes.
+- Highlight queue and highlight-with-note workflow.
+- YouTube transcript capture with multiple transcript storage modes.
+- PDF text extraction with metadata.
+- Automatic word count, character count, and content hash.
+- Optional diagnostics metadata (off by default).
+- Customizable bubble menu:
+  - enable/disable actions
+  - drag-and-drop ordering
+  - template layout (`Horizontal` or `Vertical`)
+  - visual styles (`Glass`, `Clean`, `Midnight`)
+- Live shortcut display in settings with direct link to Chrome shortcut editor.
 
 ## Install
 
-### Option 1: Install from a release build (recommended)
+### Option 1: From release (recommended)
 
-1. Download `context-capture-saver.zip` from the latest GitHub release.
-2. Unzip it on your machine.
+1. Download `context-capture-saver.zip` from the latest release.
+2. Unzip it.
 3. Open `chrome://extensions`.
 4. Enable **Developer mode**.
 5. Click **Load unpacked** and select the unzipped folder.
 
-### Option 2: Run from source
+### Option 2: From source
 
 1. Clone this repository.
 2. Run:
@@ -37,96 +51,98 @@ npm run build
 4. Enable **Developer mode**.
 5. Click **Load unpacked** and select `dist/`.
 
-## First-Time Setup
+## Setup (First Time)
 
-1. Open extension options.
-2. Click **Choose folder** and select where captures should be stored.
-3. (Optional) Click **Test write** to confirm access.
-4. (Optional) Choose:
-   - JSON or SQLite storage
-   - compression behavior for large text
-   - folder organization by date/type
+1. Open extension settings.
+2. Choose your storage folder.
+3. Optional: run **Test write**.
+4. Configure your preferred:
+   - storage backend (`JSON` or `SQLite`)
+   - folder organization (JSON mode)
+   - large-content compression (JSON mode)
+   - diagnostics inclusion
+   - bubble template layout/style and actions
 
-## Usage
+## How You Capture
 
-### Website capture
+### Websites
 
-- Right-click page or selected text:
-  - **Save content**
-  - **Save with note**
-  - **Add highlight**
-  - **Add highlight and note**
+Use right-click menu, shortcuts, or bubble menu actions:
 
-Highlights are queued and shown in the notes panel. Click **Save** to write one combined capture.
+- Save content
+- Save content with note
+- Save content with highlight
+- Highlight
+- Highlight with note
 
-### YouTube transcript capture
+### YouTube
 
-On YouTube video pages:
+On supported YouTube video pages:
 
-- **Save YouTube transcript**
-- **Save transcript with note**
+- Save transcript
+- Save transcript with note
 
-Transcript storage mode (in settings):
+Transcript storage modes:
 
-- `documentText` only
-- `transcriptSegments` only
+- plain transcript text only
+- timestamped lines only
 - both
 
-### PDF capture
+### PDFs
 
-- PDF text and metadata are extracted and saved.
-- For many PDFs, right-click highlight actions work reliably.
-- Chrome's native PDF viewer can block inline overlay injection, so the floating bubble menu may not appear in some PDF tabs.
+- Extracts page text and PDF metadata.
+- Right-click capture and highlight actions are supported.
+- Chrome’s built-in PDF viewer can still limit inline overlay behavior in some cases.
 
 ## Keyboard Shortcuts
 
-- macOS:
-  - `Shift + Command + D` save content
-  - `Shift + Command + C` save with note
-- Windows/Linux:
-  - `Ctrl + Shift + D` save content
-  - `Ctrl + Shift + C` save with note
+Default shortcuts:
 
-## Output Format
+- macOS: `Shift + Command + D`, `Shift + Command + C`
+- Windows/Linux: `Ctrl + Shift + D`, `Ctrl + Shift + C`
+
+You can change shortcuts in `chrome://extensions/shortcuts`.
+The settings page shows currently configured values.
+
+## Saved Data
 
 Each capture includes:
 
-- source URL and title
-- capture timestamp (`savedAt`)
-- extracted content (`documentText` or `documentTextParts`)
-- annotations (`selectedText`, `comment`, `createdAt`) when present
-- diagnostics fields for traceability
+- source metadata (URL, title, site, etc.)
+- capture metadata (`savedAt`, `contentHash`)
+- cleaned `documentText` (or transcript content)
+- `documentTextWordCount`
+- `documentTextCharacterCount`
+- annotations (when present)
+- optional diagnostics (if enabled)
 
 ## Privacy
 
-- Data is saved to a local folder you explicitly choose.
-- No cloud sync is required.
-- The extension does not need an external backend service to store captures.
+- Data is written only to your selected local folder.
+- No required external backend.
+- No cloud dependency for normal capture workflow.
 
-## Troubleshooting
+## Known Limitations
 
-- **No files saved**
-  - Re-open options and re-select your folder.
-  - Ensure folder permission is granted.
-- **YouTube transcript unavailable**
-  - Some videos do not expose transcript/caption data.
-  - Capture still saves diagnostics for debugging.
-- **PDF bubble menu missing**
-  - Use right-click highlight actions (`Add highlight`, `Add highlight and note`) as fallback in Chrome's built-in PDF viewer.
+- Some YouTube videos do not expose transcript/caption data.
+- Chrome PDF viewer restrictions can block some inline selection UX paths.
 
 ## Development
 
 ```bash
 npm ci
-npm run check
+npm run lint
 npm run typecheck
 npm run test:ci
 npm run build
 ```
 
-## CI/CD
+## Contributing
 
-- CI runs syntax checks, type checks, tests, build, and dependency audit.
-- Release pipeline runs on tags like `v1.0.0` and publishes:
-  - `context-capture-saver.zip`
-  - SHA256 checksum
+Issues and PRs are welcome.
+
+When contributing:
+
+1. Keep changes scoped and tested.
+2. Run lint, typecheck, and tests before opening a PR.
+3. Include a short summary of behavior changes in your PR description.

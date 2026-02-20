@@ -43,7 +43,7 @@
           <span>SQLite database (<code>context-captures.sqlite</code>)</span>
         </label>
 
-        <section id="folderOrganizationSection" class="sub-card">
+        <section id="folderOrganizationSection" class="sub-card" hidden>
           <h3>Folder Organization (JSON only)</h3>
 
           <label class="field checkbox">
@@ -64,6 +64,29 @@
             </select>
           </label>
         </section>
+        <section id="largeContentSection" class="sub-card" hidden>
+          <h3>Large Content Handling (JSON only)</h3>
+          <p class="section-copy">Compression reduces file size for long captures.</p>
+
+          <label class="field checkbox">
+            <input id="compressLargeTextInput" type="checkbox" />
+            <span>Compress large document text with gzip when available</span>
+          </label>
+
+          <label class="field">
+            <span>Compression threshold characters</span>
+            <input id="compressionThresholdInput" type="number" min="1000" step="1000" />
+          </label>
+        </section>
+
+        <section class="sub-card">
+          <h3>Capture Metadata</h3>
+          <label class="field checkbox">
+            <input id="includeDiagnosticsInput" type="checkbox" />
+            <span>Include diagnostics data in saved captures</span>
+          </label>
+          <p class="hint">Disabled by default. Enable only when you need troubleshooting details.</p>
+        </section>
       </section>
 
       <section class="settings-card">
@@ -71,6 +94,104 @@
         <p class="section-copy">
           Choose which actions appear when text is selected. Drag items to reorder buttons.
         </p>
+
+        <section class="sub-card">
+          <h3>Template layout</h3>
+          <div class="template-grid" id="bubbleLayoutGrid">
+            <label class="template-option">
+              <input
+                id="bubbleLayoutHorizontal"
+                class="template-radio"
+                type="radio"
+                name="bubbleMenuLayout"
+                value="horizontal"
+              />
+              <span class="template-card">
+                <span class="template-card__title">Horizontal</span>
+                <span class="template-preview template-preview--horizontal">
+                  <span class="template-pill template-pill--wide"></span>
+                  <span class="template-pill"></span>
+                  <span class="template-pill"></span>
+                  <span class="template-pill template-pill--wide"></span>
+                </span>
+              </span>
+            </label>
+
+            <label class="template-option">
+              <input
+                id="bubbleLayoutVertical"
+                class="template-radio"
+                type="radio"
+                name="bubbleMenuLayout"
+                value="vertical"
+              />
+              <span class="template-card">
+                <span class="template-card__title">Vertical</span>
+                <span class="template-preview template-preview--vertical">
+                  <span class="template-pill template-pill--wide"></span>
+                  <span class="template-pill template-pill--wide"></span>
+                  <span class="template-pill template-pill--wide"></span>
+                </span>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section class="sub-card">
+          <h3>Visual style</h3>
+          <div class="template-grid template-grid--styles" id="bubbleStyleGrid">
+            <label class="template-option">
+              <input
+                id="bubbleStyleGlass"
+                class="template-radio"
+                type="radio"
+                name="bubbleMenuStyle"
+                value="glass"
+              />
+              <span class="template-card template-card--style template-card--glass">
+                <span class="template-card__title">Glass</span>
+                <span class="template-preview template-preview--style">
+                  <span class="template-pill template-pill--wide"></span>
+                  <span class="template-pill"></span>
+                </span>
+              </span>
+            </label>
+
+            <label class="template-option">
+              <input
+                id="bubbleStyleClean"
+                class="template-radio"
+                type="radio"
+                name="bubbleMenuStyle"
+                value="clean"
+              />
+              <span class="template-card template-card--style template-card--clean">
+                <span class="template-card__title">Clean</span>
+                <span class="template-preview template-preview--style">
+                  <span class="template-pill template-pill--wide"></span>
+                  <span class="template-pill"></span>
+                </span>
+              </span>
+            </label>
+
+            <label class="template-option">
+              <input
+                id="bubbleStyleMidnight"
+                class="template-radio"
+                type="radio"
+                name="bubbleMenuStyle"
+                value="midnight"
+              />
+              <span class="template-card template-card--style template-card--midnight">
+                <span class="template-card__title">Midnight</span>
+                <span class="template-preview template-preview--style">
+                  <span class="template-pill template-pill--wide"></span>
+                  <span class="template-pill"></span>
+                </span>
+              </span>
+            </label>
+          </div>
+        </section>
 
         <ul id="bubbleMenuList" class="bubble-option-list" aria-label="Bubble menu actions"></ul>
         <p id="bubbleMenuHint" class="hint">3 actions enabled. Drag to reorder.</p>
@@ -88,29 +209,22 @@
         </label>
       </section>
 
-      <section class="settings-card">
-        <h2>Large Content Handling</h2>
-        <p class="section-copy">Compression reduces file size for long captures.</p>
-
-        <label class="field checkbox">
-          <input id="compressLargeTextInput" type="checkbox" />
-          <span>Compress large document text with gzip when available</span>
-        </label>
-
-        <label class="field">
-          <span>Compression threshold characters</span>
-          <input id="compressionThresholdInput" type="number" min="1000" step="1000" />
-        </label>
-      </section>
-
       <footer class="settings-footer">
-        <p id="settingsStatus" class="status-inline">All settings save automatically.</p>
-        <p class="hint">
-          Shortcuts: <code>Shift+Cmd+D</code>/<code>Shift+Cmd+C</code> on macOS,
-          <code>Ctrl+Shift+D</code>/<code>Ctrl+Shift+C</code> elsewhere.
-        </p>
+        <section class="shortcut-panel" aria-label="Keyboard shortcuts">
+          <div class="shortcut-panel__header">
+            <p class="shortcut-panel__title">Keyboard shortcuts</p>
+            <button id="openShortcutsButton" class="ghost shortcut-panel__button" type="button">
+              Change in Chrome
+            </button>
+          </div>
+          <ul id="shortcutList" class="shortcut-list"></ul>
+          <p class="hint">
+            Shortcuts are managed by Chrome and shown here live from your current configuration.
+          </p>
+        </section>
       </footer>
     </main>
+    <div id="settingsStatusToast" class="settings-toast" role="status" aria-live="polite" hidden></div>
 
     <script type="module" src="./options.js"></script>
   </body>

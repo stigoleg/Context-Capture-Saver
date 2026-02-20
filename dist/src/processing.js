@@ -1,6 +1,14 @@
 import * as pako from "./vendor/pako.mjs";
 import { computeContentHash } from "./hash.js";
 
+function countWords(text) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return 0;
+  }
+  return normalized.split(/\s+/).filter(Boolean).length;
+}
+
 function toBase64(uint8Array) {
   let binary = "";
   for (let i = 0; i < uint8Array.length; i += 1) {
@@ -90,9 +98,12 @@ export async function applyContentPolicies(record, settings) {
   const next = {
     ...(record || {})
   };
-  const diagnostics = {
-    ...(record?.diagnostics || {})
-  };
+  const includeDiagnostics = settings?.includeDiagnostics === true;
+  const diagnostics = includeDiagnostics
+    ? {
+        ...(record?.diagnostics || {})
+      }
+    : null;
   const content = {
     ...(record?.content || {})
   };
@@ -103,17 +114,19 @@ export async function applyContentPolicies(record, settings) {
     : 0;
   const originalLength = originalDocumentText.length || originalPartsLength;
 
-  diagnostics.contentPolicies = {
-    maxDocumentChars: settings.maxDocumentChars,
-    compressLargeText: settings.compressLargeText,
-    compressionThresholdChars: settings.compressionThresholdChars,
-    documentTextOriginalLength: originalLength,
-    documentTextStoredLength: originalLength,
-    truncated: false,
-    compressed: false,
-    compressionType: null,
-    compressionError: null
-  };
+  if (includeDiagnostics) {
+    diagnostics.contentPolicies = {
+      maxDocumentChars: settings.maxDocumentChars,
+      compressLargeText: settings.compressLargeText,
+      compressionThresholdChars: settings.compressionThresholdChars,
+      documentTextOriginalLength: originalLength,
+      documentTextStoredLength: originalLength,
+      truncated: false,
+      compressed: false,
+      compressionType: null,
+      compressionError: null
+    };
+  }
 
   const currentText = content.documentText || "";
   const currentLength = currentText.length || originalPartsLength;
@@ -133,20 +146,26 @@ export async function applyContentPolicies(record, settings) {
           value: compressedBase64,
           originalLength: currentLength
         };
-        diagnostics.contentPolicies.compressed = true;
-        diagnostics.contentPolicies.compressionType = "gzip+base64";
-        diagnostics.contentPolicies.documentTextStoredLength = currentLength;
+        if (includeDiagnostics) {
+          diagnostics.contentPolicies.compressed = true;
+          diagnostics.contentPolicies.compressionType = "gzip+base64";
+          diagnostics.contentPolicies.documentTextStoredLength = currentLength;
+        }
       } else {
-        diagnostics.contentPolicies.compressionError = "CompressionStream unavailable";
+        if (includeDiagnostics) {
+          diagnostics.contentPolicies.compressionError = "CompressionStream unavailable";
+        }
       }
     } catch (error) {
-      diagnostics.contentPolicies.compressionError = error?.message || "Compression failed";
+      if (includeDiagnostics) {
+        diagnostics.contentPolicies.compressionError = error?.message || "Compression failed";
+      }
     }
   }
 
   if (hasParts && (!content.documentText || content.documentText.length === 0)) {
     content.documentText = content.documentTextParts.join("\n\n");
-    if (!diagnostics.contentPolicies.documentTextStoredLength) {
+    if (includeDiagnostics && !diagnostics.contentPolicies.documentTextStoredLength) {
       diagnostics.contentPolicies.documentTextStoredLength = content.documentText.length;
     }
   }
@@ -156,8 +175,14 @@ export async function applyContentPolicies(record, settings) {
   }
 
   content.contentHash = computeContentHash(content.documentText || "");
+  content.documentTextWordCount = countWords(content.documentText || "");
+  content.documentTextCharacterCount = (content.documentText || "").length;
 
   next.content = content;
-  next.diagnostics = diagnostics;
+  if (includeDiagnostics) {
+    next.diagnostics = diagnostics;
+  } else {
+    delete next.diagnostics;
+  }
   return next;
 }

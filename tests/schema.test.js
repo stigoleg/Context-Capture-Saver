@@ -35,6 +35,8 @@ test("validateCaptureRecord accepts a valid record", () => {
   assert.equal(result.valid, true);
   assert.deepEqual(result.errors, []);
   assert.equal(typeof record.content.contentHash, "string");
+  assert.equal(record.content.documentTextWordCount, 3);
+  assert.equal(record.content.documentTextCharacterCount, 18);
 });
 
 test("validateCaptureRecord rejects missing source url", () => {
@@ -50,4 +52,25 @@ test("buildFileName sanitizes unsafe title characters", () => {
   record.source.title = "Hello, World! $$$ and Spaces";
   const filename = buildFileName(record);
   assert.match(filename, /hello-world-and-spaces\.json$/);
+});
+
+test("diagnostics are optional in schema records", () => {
+  const record = buildCaptureRecord({
+    captureType: "selected_text",
+    source: {
+      url: "https://example.com/article",
+      title: "A sample article",
+      site: "example.com",
+      language: "en",
+      publishedAt: "2025-01-01T12:00:00.000Z",
+      metadata: {}
+    },
+    content: {
+      documentText: "hello world"
+    }
+  });
+
+  assert.equal(record.diagnostics, undefined);
+  const result = validateCaptureRecord(record);
+  assert.equal(result.valid, true);
 });

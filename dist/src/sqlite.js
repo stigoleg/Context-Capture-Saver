@@ -45,6 +45,8 @@ function ensureSchema(db) {
       sourceMetadata TEXT,
       selectedText TEXT,
       documentText TEXT,
+      documentTextWordCount INTEGER,
+      documentTextCharacterCount INTEGER,
       contentHash TEXT,
       documentTextCompressed TEXT,
       comment TEXT,
@@ -59,17 +61,19 @@ function ensureSchema(db) {
   db.run(`CREATE INDEX IF NOT EXISTS captures_type ON captures(captureType);`);
 }
 
-function ensureColumn(db, name) {
+function ensureColumn(db, name, type = "TEXT") {
   const result = db.exec(`PRAGMA table_info(captures);`);
   const columns = result?.[0]?.values?.map((row) => row[1]) || [];
   if (!columns.includes(name)) {
-    db.run(`ALTER TABLE captures ADD COLUMN ${name} TEXT;`);
+    db.run(`ALTER TABLE captures ADD COLUMN ${name} ${type};`);
   }
 }
 
 function ensureColumns(db) {
   ensureColumn(db, "annotations");
   ensureColumn(db, "contentHash");
+  ensureColumn(db, "documentTextWordCount", "INTEGER");
+  ensureColumn(db, "documentTextCharacterCount", "INTEGER");
 }
 
 function insertCapture(db, record) {
@@ -88,6 +92,8 @@ function insertCapture(db, record) {
       sourceMetadata,
       selectedText,
       documentText,
+      documentTextWordCount,
+      documentTextCharacterCount,
       contentHash,
       documentTextCompressed,
       comment,
@@ -95,7 +101,7 @@ function insertCapture(db, record) {
       transcriptText,
       transcriptSegments,
       diagnostics
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
   stmt.run([
@@ -111,6 +117,8 @@ function insertCapture(db, record) {
     encodeJson(record.source?.metadata || null),
     record.content?.selectedText ?? null,
     record.content?.documentText ?? null,
+    record.content?.documentTextWordCount ?? null,
+    record.content?.documentTextCharacterCount ?? null,
     record.content?.contentHash ?? null,
     encodeJson(record.content?.documentTextCompressed ?? null),
     record.content?.comment ?? null,

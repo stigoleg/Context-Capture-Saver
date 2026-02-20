@@ -1114,6 +1114,10 @@ const DEFAULT_BUBBLE_MENU_ENABLED = [
   "highlight",
   "highlight_with_note"
 ];
+const BUBBLE_MENU_LAYOUTS = ["horizontal", "vertical"];
+const DEFAULT_BUBBLE_MENU_LAYOUT = "horizontal";
+const BUBBLE_MENU_STYLES = ["glass", "clean", "midnight"];
+const DEFAULT_BUBBLE_MENU_STYLE = "glass";
 
 const BUBBLE_ACTION_META = {
   save_content: {
@@ -1140,7 +1144,9 @@ const BUBBLE_ACTION_META = {
 
 const bubbleMenuConfig = {
   order: [...DEFAULT_BUBBLE_MENU_ORDER],
-  enabled: [...DEFAULT_BUBBLE_MENU_ENABLED]
+  enabled: [...DEFAULT_BUBBLE_MENU_ENABLED],
+  layout: DEFAULT_BUBBLE_MENU_LAYOUT,
+  style: DEFAULT_BUBBLE_MENU_STYLE
 };
 
 function normalizeBubbleMenuConfig(raw) {
@@ -1174,7 +1180,14 @@ function normalizeBubbleMenuConfig(raw) {
     enabled.push(...DEFAULT_BUBBLE_MENU_ENABLED);
   }
 
-  return { order, enabled };
+  const style = BUBBLE_MENU_STYLES.includes(raw?.bubbleMenuStyle)
+    ? raw.bubbleMenuStyle
+    : DEFAULT_BUBBLE_MENU_STYLE;
+  const layout = BUBBLE_MENU_LAYOUTS.includes(raw?.bubbleMenuLayout)
+    ? raw.bubbleMenuLayout
+    : DEFAULT_BUBBLE_MENU_LAYOUT;
+
+  return { order, enabled, layout, style };
 }
 
 async function loadBubbleMenuConfig() {
@@ -1184,9 +1197,13 @@ async function loadBubbleMenuConfig() {
     const normalized = normalizeBubbleMenuConfig(settings);
     bubbleMenuConfig.order = normalized.order;
     bubbleMenuConfig.enabled = normalized.enabled;
+    bubbleMenuConfig.layout = normalized.layout;
+    bubbleMenuConfig.style = normalized.style;
   } catch (_error) {
     bubbleMenuConfig.order = [...DEFAULT_BUBBLE_MENU_ORDER];
     bubbleMenuConfig.enabled = [...DEFAULT_BUBBLE_MENU_ENABLED];
+    bubbleMenuConfig.layout = DEFAULT_BUBBLE_MENU_LAYOUT;
+    bubbleMenuConfig.style = DEFAULT_BUBBLE_MENU_STYLE;
   }
 }
 
@@ -1199,6 +1216,10 @@ chrome.storage?.onChanged?.addListener((changes, areaName) => {
   const normalized = normalizeBubbleMenuConfig(next);
   bubbleMenuConfig.order = normalized.order;
   bubbleMenuConfig.enabled = normalized.enabled;
+  bubbleMenuConfig.layout = normalized.layout;
+  bubbleMenuConfig.style = normalized.style;
+  hideSelectionBubble();
+  scheduleSelectionBubbleUpdate();
 });
 
 function ensureToastStyles() {
@@ -1500,22 +1521,54 @@ function ensureCommentStyles() {
 
     .ccs-selection-bubble {
       position: fixed;
-      background: linear-gradient(165deg, #0f172a, #0b1222);
-      color: #e2e8f0;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      padding: 6px;
-      display: flex;
+      --bubble-bg: rgba(12, 19, 32, 0.88);
+      --bubble-border: rgba(123, 172, 255, 0.35);
+      --bubble-shadow: 0 12px 32px rgba(2, 6, 23, 0.32);
+      --bubble-text: #e6eefc;
+      --bubble-primary-bg: rgba(56, 189, 248, 0.22);
+      --bubble-primary-border: rgba(56, 189, 248, 0.42);
+      --bubble-primary-hover: rgba(56, 189, 248, 0.32);
+      --bubble-secondary-bg: rgba(148, 163, 184, 0.12);
+      --bubble-secondary-border: rgba(148, 163, 184, 0.26);
+      --bubble-secondary-hover: rgba(148, 163, 184, 0.22);
+      background: var(--bubble-bg);
+      color: var(--bubble-text);
+      border: 1px solid var(--bubble-border);
+      border-radius: 12px;
+      padding: 7px;
+      display: grid;
       gap: 6px;
-      align-items: center;
-      flex-wrap: wrap;
-      max-width: min(96vw, 560px);
-      box-shadow: 0 12px 28px rgba(2, 6, 23, 0.34);
-      font: 12px/1 "Segoe UI", Arial, sans-serif;
+      max-width: min(96vw, 620px);
+      min-width: min(280px, 90vw);
+      box-shadow: var(--bubble-shadow);
+      font: 12px/1.2 "Segoe UI", Arial, sans-serif;
       z-index: 2147483646;
-      transform: translate(-50%, -100%);
       pointer-events: auto;
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .ccs-selection-bubble.ccs-selection-bubble--above {
+      transform: translate(-50%, -100%);
+    }
+
+    .ccs-selection-bubble.ccs-selection-bubble--below {
+      transform: translate(-50%, 0);
+    }
+
+    .ccs-selection-bubble .ccs-selection-bubble__actions {
+      gap: 6px;
+    }
+
+    .ccs-selection-bubble.ccs-selection-bubble--layout-horizontal .ccs-selection-bubble__actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+    }
+
+    .ccs-selection-bubble.ccs-selection-bubble--layout-vertical .ccs-selection-bubble__actions {
+      display: grid;
+      grid-template-columns: 1fr;
     }
 
     .ccs-selection-bubble .ccs-selection-bubble__action {
@@ -1525,36 +1578,84 @@ function ensureCommentStyles() {
       font: inherit;
       font-weight: 600;
       cursor: pointer;
-      padding: 6px 9px;
-      border-radius: 9px;
+      min-height: 32px;
+      padding: 7px 10px;
+      border-radius: 8px;
       letter-spacing: 0.1px;
-      transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+      transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+      white-space: normal;
+      text-align: center;
+    }
+
+    .ccs-selection-bubble.ccs-selection-bubble--layout-horizontal .ccs-selection-bubble__action {
+      flex: 0 1 auto;
       white-space: nowrap;
+      text-align: center;
     }
 
     .ccs-selection-bubble .ccs-selection-bubble__action--primary {
-      background: rgba(56, 189, 248, 0.2);
-      border-color: rgba(56, 189, 248, 0.34);
-      color: #d9f2ff;
+      background: var(--bubble-primary-bg);
+      border-color: var(--bubble-primary-border);
     }
 
     .ccs-selection-bubble .ccs-selection-bubble__action--primary:hover {
-      background: rgba(56, 189, 248, 0.32);
+      background: var(--bubble-primary-hover);
+      transform: translateY(-1px);
     }
 
     .ccs-selection-bubble .ccs-selection-bubble__action--secondary {
-      background: rgba(148, 163, 184, 0.12);
-      border-color: rgba(148, 163, 184, 0.28);
+      background: var(--bubble-secondary-bg);
+      border-color: var(--bubble-secondary-border);
     }
 
     .ccs-selection-bubble .ccs-selection-bubble__action--secondary:hover {
-      background: rgba(148, 163, 184, 0.22);
-      color: #f8fafc;
+      background: var(--bubble-secondary-hover);
+      transform: translateY(-1px);
     }
 
     .ccs-selection-bubble .ccs-selection-bubble__action:focus-visible {
       outline: 2px solid rgba(56, 189, 248, 0.7);
       outline-offset: 1px;
+    }
+
+    .ccs-selection-bubble.ccs-selection-bubble--clean {
+      --bubble-bg: rgba(250, 252, 255, 0.97);
+      --bubble-border: rgba(148, 163, 184, 0.34);
+      --bubble-shadow: 0 10px 26px rgba(15, 23, 42, 0.18);
+      --bubble-text: #0f172a;
+      --bubble-primary-bg: rgba(37, 99, 235, 0.12);
+      --bubble-primary-border: rgba(37, 99, 235, 0.3);
+      --bubble-primary-hover: rgba(37, 99, 235, 0.2);
+      --bubble-secondary-bg: rgba(15, 23, 42, 0.05);
+      --bubble-secondary-border: rgba(15, 23, 42, 0.14);
+      --bubble-secondary-hover: rgba(15, 23, 42, 0.1);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+
+    .ccs-selection-bubble.ccs-selection-bubble--midnight {
+      --bubble-bg: rgba(9, 13, 28, 0.94);
+      --bubble-border: rgba(99, 102, 241, 0.42);
+      --bubble-shadow: 0 16px 34px rgba(2, 6, 23, 0.42);
+      --bubble-text: #f8fafc;
+      --bubble-primary-bg: rgba(79, 70, 229, 0.24);
+      --bubble-primary-border: rgba(129, 140, 248, 0.55);
+      --bubble-primary-hover: rgba(79, 70, 229, 0.34);
+      --bubble-secondary-bg: rgba(51, 65, 85, 0.35);
+      --bubble-secondary-border: rgba(148, 163, 184, 0.36);
+      --bubble-secondary-hover: rgba(71, 85, 105, 0.5);
+    }
+
+    @media (max-width: 640px) {
+      .ccs-selection-bubble {
+        min-width: 0;
+        max-width: calc(100vw - 14px);
+      }
+
+      .ccs-selection-bubble.ccs-selection-bubble--layout-horizontal .ccs-selection-bubble__actions {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
     }
   `;
   document.head?.appendChild(style);
@@ -1772,7 +1873,14 @@ function ensureSelectionBubble() {
 
   bubble = document.createElement("div");
   bubble.id = SELECTION_BUBBLE_ID;
-  bubble.className = "ccs-selection-bubble";
+  const bubbleLayout = BUBBLE_MENU_LAYOUTS.includes(bubbleMenuConfig.layout)
+    ? bubbleMenuConfig.layout
+    : DEFAULT_BUBBLE_MENU_LAYOUT;
+  const bubbleStyle = BUBBLE_MENU_STYLES.includes(bubbleMenuConfig.style)
+    ? bubbleMenuConfig.style
+    : DEFAULT_BUBBLE_MENU_STYLE;
+  bubble.className = `ccs-selection-bubble ccs-selection-bubble--${bubbleStyle} ` +
+    `ccs-selection-bubble--layout-${bubbleLayout} ccs-selection-bubble--above`;
   bubble.addEventListener("mousedown", (event) => {
     event.preventDefault();
   });
@@ -1783,6 +1891,9 @@ function ensureSelectionBubble() {
   const actions = orderedEnabledActions.length
     ? orderedEnabledActions
     : ["save_content", "highlight", "highlight_with_note"];
+
+  const actionsWrap = document.createElement("div");
+  actionsWrap.className = "ccs-selection-bubble__actions";
 
   actions.forEach((actionKey, index) => {
     const meta = BUBBLE_ACTION_META[actionKey];
@@ -1797,9 +1908,10 @@ function ensureSelectionBubble() {
     button.addEventListener("click", () => {
       void runBubbleAction(actionKey, bubble);
     });
-    bubble.appendChild(button);
+    actionsWrap.appendChild(button);
   });
 
+  bubble.appendChild(actionsWrap);
   document.body?.appendChild(bubble);
   return bubble;
 }
@@ -1816,6 +1928,46 @@ let pdfResolveQueued = false;
 let pdfSelectionPollTimer = null;
 let pdfEmptyBubbleTimer = null;
 
+function positionBubbleWithinViewport(bubble, anchorX, anchorTop, anchorBottom) {
+  if (!bubble) {
+    return;
+  }
+
+  const margin = 12;
+  bubble.classList.remove("ccs-selection-bubble--below");
+  bubble.classList.add("ccs-selection-bubble--above");
+  bubble.style.visibility = "hidden";
+  bubble.style.left = "0px";
+  bubble.style.top = "0px";
+
+  const rect = bubble.getBoundingClientRect();
+  const bubbleWidth = Math.max(rect.width, 120);
+  const bubbleHeight = Math.max(rect.height, 40);
+  const halfWidth = bubbleWidth / 2;
+
+  const left = Math.min(
+    Math.max(anchorX, margin + halfWidth),
+    Math.max(margin + halfWidth, window.innerWidth - margin - halfWidth)
+  );
+
+  const safeTop = Math.min(Math.max(anchorTop, margin), window.innerHeight - margin);
+  const safeBottom = Math.min(Math.max(anchorBottom, margin), window.innerHeight - margin);
+  const spaceAbove = safeTop - margin;
+  const spaceBelow = window.innerHeight - safeBottom - margin;
+  const placeBelow = spaceAbove < bubbleHeight && spaceBelow >= spaceAbove;
+
+  bubble.classList.toggle("ccs-selection-bubble--below", placeBelow);
+  bubble.classList.toggle("ccs-selection-bubble--above", !placeBelow);
+
+  const top = placeBelow
+    ? Math.min(safeBottom + 10, window.innerHeight - bubbleHeight - margin)
+    : Math.max(safeTop - 10, bubbleHeight + margin);
+
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${top}px`;
+  bubble.style.visibility = "";
+}
+
 function positionPdfBubble(bubble) {
   const left = lastPointerPosition.has
     ? Math.min(Math.max(lastPointerPosition.x, 16), window.innerWidth - 16)
@@ -1823,8 +1975,7 @@ function positionPdfBubble(bubble) {
   const top = lastPointerPosition.has
     ? Math.min(Math.max(lastPointerPosition.y, 24), window.innerHeight - 24)
     : Math.min(window.innerHeight - 24, Math.max(window.innerHeight / 2, 24));
-  bubble.style.left = `${left}px`;
-  bubble.style.top = `${top}px`;
+  positionBubbleWithinViewport(bubble, left, top, top + 2);
 }
 
 function clearPdfEmptyBubbleTimer() {
@@ -1927,6 +2078,46 @@ function stopPdfSelectionPoller() {
   pdfSelectionPollTimer = null;
 }
 
+function isEditableFieldSelection(selection) {
+  const active = document.activeElement;
+  if (active instanceof HTMLTextAreaElement) {
+    const start = active.selectionStart ?? 0;
+    const end = active.selectionEnd ?? 0;
+    return end > start;
+  }
+  if (active instanceof HTMLInputElement) {
+    const type = String(active.type || "").toLowerCase();
+    const textLikeTypes = new Set([
+      "text",
+      "search",
+      "url",
+      "tel",
+      "password",
+      "email",
+      "number"
+    ]);
+    if (textLikeTypes.has(type)) {
+      const start = active.selectionStart ?? 0;
+      const end = active.selectionEnd ?? 0;
+      return end > start;
+    }
+  }
+
+  if (!selection) {
+    return false;
+  }
+
+  let anchor = selection.anchorNode;
+  if (anchor && anchor.nodeType === Node.TEXT_NODE) {
+    anchor = anchor.parentElement;
+  }
+  if (!(anchor instanceof Element)) {
+    return false;
+  }
+
+  return Boolean(anchor.closest("textarea, input, [contenteditable=''], [contenteditable='true'], [role='textbox']"));
+}
+
 function scheduleSelectionBubbleUpdate() {
   if (isYouTubePage()) {
     hideSelectionBubble();
@@ -1951,6 +2142,12 @@ function scheduleSelectionBubbleUpdate() {
       hideSelectionBubble();
       return;
     }
+
+    if (isEditableFieldSelection(selection)) {
+      hideSelectionBubble();
+      return;
+    }
+
     let anchor = selection.anchorNode;
     if (anchor && anchor.nodeType === Node.TEXT_NODE) {
       anchor = anchor.parentElement;
@@ -1988,12 +2185,10 @@ function scheduleSelectionBubbleUpdate() {
 
     const bubble = ensureSelectionBubble();
     bubble.dataset.selectionText = text;
-
-    const left = Math.min(Math.max(rect.left + rect.width / 2, 16), window.innerWidth - 16);
-    const top = Math.max(rect.top - 8, 16);
-
-    bubble.style.left = `${left}px`;
-    bubble.style.top = `${top}px`;
+    const anchorX = Math.min(Math.max(rect.left + rect.width / 2, 16), window.innerWidth - 16);
+    const anchorTop = Math.max(rect.top, 8);
+    const anchorBottom = Math.min(rect.bottom, window.innerHeight - 8);
+    positionBubbleWithinViewport(bubble, anchorX, anchorTop, anchorBottom);
     })();
   }, 80);
 }

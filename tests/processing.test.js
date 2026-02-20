@@ -14,7 +14,8 @@ test("applyContentPolicies does not truncate document text", async () => {
   const next = await applyContentPolicies(record, {
     maxDocumentChars: 50,
     compressLargeText: false,
-    compressionThresholdChars: 100
+    compressionThresholdChars: 100,
+    includeDiagnostics: true
   });
 
   assert.equal(next.content.documentText.length, 120);
@@ -34,7 +35,8 @@ test("applyContentPolicies compresses documentTextParts without joining", async 
   const next = await applyContentPolicies(record, {
     maxDocumentChars: 0,
     compressLargeText: true,
-    compressionThresholdChars: 2
+    compressionThresholdChars: 2,
+    includeDiagnostics: true
   });
 
   assert.equal(next.content.documentText, "alpha\n\nbeta\n\ngamma");
@@ -55,11 +57,34 @@ test("applyContentPolicies keeps document text unchanged when under limits", asy
   const next = await applyContentPolicies(record, {
     maxDocumentChars: 200,
     compressLargeText: false,
-    compressionThresholdChars: 100
+    compressionThresholdChars: 100,
+    includeDiagnostics: true
   });
 
   assert.equal(next.content.documentText, text);
   assert.equal(next.diagnostics.contentPolicies.truncated, false);
   assert.equal(next.diagnostics.contentPolicies.documentTextOriginalLength, text.length);
   assert.equal(typeof next.content.contentHash, "string");
+});
+
+test("applyContentPolicies omits diagnostics when disabled", async () => {
+  const record = {
+    diagnostics: {
+      shouldNotPersist: true
+    },
+    content: {
+      documentText: "small text"
+    }
+  };
+
+  const next = await applyContentPolicies(record, {
+    maxDocumentChars: 200,
+    compressLargeText: false,
+    compressionThresholdChars: 100,
+    includeDiagnostics: false
+  });
+
+  assert.equal("diagnostics" in next, false);
+  assert.equal(next.content.documentTextWordCount, 2);
+  assert.equal(next.content.documentTextCharacterCount, 10);
 });

@@ -20,15 +20,21 @@ export const DEFAULT_BUBBLE_MENU_ENABLED = [
   "highlight_with_note"
 ];
 
+export const BUBBLE_MENU_STYLES = ["glass", "clean", "midnight"];
+export const BUBBLE_MENU_LAYOUTS = ["horizontal", "vertical"];
+
 export const DEFAULT_SETTINGS = {
   maxDocumentChars: 0,
-  compressLargeText: true,
+  compressLargeText: false,
   compressionThresholdChars: 75000,
+  includeDiagnostics: false,
   storageBackend: "json",
   youtubeTranscriptStorageMode: "document_text",
   organizeByDate: false,
   organizeByType: false,
   organizeOrder: "type_date",
+  bubbleMenuLayout: "horizontal",
+  bubbleMenuStyle: "glass",
   bubbleMenuOrder: [...DEFAULT_BUBBLE_MENU_ORDER],
   bubbleMenuEnabled: [...DEFAULT_BUBBLE_MENU_ENABLED]
 };
@@ -76,8 +82,17 @@ function normalizeSettings(input) {
     ...(input || {})
   };
   const bubble = normalizeBubbleSettings(merged);
+  const bubbleMenuLayout = BUBBLE_MENU_LAYOUTS.includes(merged.bubbleMenuLayout)
+    ? merged.bubbleMenuLayout
+    : DEFAULT_SETTINGS.bubbleMenuLayout;
+  const bubbleMenuStyle = BUBBLE_MENU_STYLES.includes(merged.bubbleMenuStyle)
+    ? merged.bubbleMenuStyle
+    : DEFAULT_SETTINGS.bubbleMenuStyle;
   return {
     ...merged,
+    includeDiagnostics: merged.includeDiagnostics === true,
+    bubbleMenuLayout,
+    bubbleMenuStyle,
     bubbleMenuOrder: bubble.bubbleMenuOrder,
     bubbleMenuEnabled: bubble.bubbleMenuEnabled
   };

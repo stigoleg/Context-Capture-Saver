@@ -1,9 +1,28 @@
 import { computeContentHash } from "./hash.js";
 
-export const SCHEMA_VERSION = "1.3.0";
+export const SCHEMA_VERSION = "1.4.0";
 
-export function buildCaptureRecord({ captureType, source, content, diagnostics = {} }) {
+function countWords(text) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return 0;
+  }
+  return normalized.split(/\s+/).filter(Boolean).length;
+}
+
+function computeDocumentTextStats(text) {
+  const normalized = String(text || "");
   return {
+    documentTextWordCount: countWords(normalized),
+    documentTextCharacterCount: normalized.length
+  };
+}
+
+export function buildCaptureRecord({ captureType, source, content, diagnostics = undefined }) {
+  const documentText = content?.documentText ?? null;
+  const contentHash = content?.contentHash ?? computeContentHash(documentText ?? "");
+  const textStats = computeDocumentTextStats(documentText ?? "");
+  const record = {
     schemaVersion: SCHEMA_VERSION,
     id: crypto.randomUUID(),
     captureType,
@@ -17,19 +36,25 @@ export function buildCaptureRecord({ captureType, source, content, diagnostics =
       metadata: source?.metadata || {}
     },
     content: {
-      documentText: content?.documentText ?? null,
+      documentText,
+      ...textStats,
       documentTextParts: content?.documentTextParts ?? null,
       documentTextCompressed: content?.documentTextCompressed ?? null,
-      contentHash: content?.contentHash ?? computeContentHash(content?.documentText ?? ""),
+      contentHash,
       annotations: content?.annotations ?? null,
       transcriptText: content?.transcriptText ?? null,
       transcriptSegments: content?.transcriptSegments ?? null
-    },
-    diagnostics: {
-      extractorVersion: "1",
-      ...diagnostics
     }
   };
+
+  if (diagnostics && typeof diagnostics === "object") {
+    record.diagnostics = {
+      extractorVersion: "1",
+      ...diagnostics
+    };
+  }
+
+  return record;
 }
 
 function slugify(input) {
@@ -104,6 +129,12 @@ export function validateCaptureRecord(record) {
     }
     if (hasDocumentText && typeof record.content.contentHash !== "string") {
       errors.push("content.contentHash is required when content.documentText is present");
+    }
+    if (typeof record.content.documentTextWordCount !== "number") {
+      errors.push("content.documentTextWordCount is required");
+    }
+    if (typeof record.content.documentTextCharacterCount !== "number") {
+      errors.push("content.documentTextCharacterCount is required");
     }
   }
 

@@ -1,6 +1,8 @@
 import { buildCaptureRecord, buildFileName } from "./schema.js";
 import {
   BUBBLE_MENU_ACTIONS,
+  BUBBLE_MENU_LAYOUTS,
+  BUBBLE_MENU_STYLES,
   DEFAULT_BUBBLE_MENU_ENABLED,
   DEFAULT_BUBBLE_MENU_ORDER,
   DEFAULT_SETTINGS,
@@ -52,6 +54,8 @@ const storageBackendJson = /** @type {HTMLInputElement} */ (document.getElementB
 const storageBackendSqlite = /** @type {HTMLInputElement} */ (document.getElementById("storageBackendSqlite"));
 /** @type {HTMLElement} */
 const folderOrganizationSection = /** @type {HTMLElement} */ (document.getElementById("folderOrganizationSection"));
+/** @type {HTMLElement} */
+const largeContentSection = /** @type {HTMLElement} */ (document.getElementById("largeContentSection"));
 /** @type {HTMLInputElement} */
 const organizeByDateInput = /** @type {HTMLInputElement} */ (document.getElementById("organizeByDateInput"));
 /** @type {HTMLInputElement} */
@@ -62,16 +66,41 @@ const organizeOrderSelect = /** @type {HTMLSelectElement} */ (document.getElemen
 const compressLargeTextInput = /** @type {HTMLInputElement} */ (document.getElementById("compressLargeTextInput"));
 /** @type {HTMLInputElement} */
 const compressionThresholdInput = /** @type {HTMLInputElement} */ (document.getElementById("compressionThresholdInput"));
+/** @type {HTMLInputElement} */
+const includeDiagnosticsInput = /** @type {HTMLInputElement} */ (document.getElementById("includeDiagnosticsInput"));
 /** @type {HTMLSelectElement} */
 const youtubeTranscriptStorageModeSelect = /** @type {HTMLSelectElement} */ (
   document.getElementById("youtubeTranscriptStorageModeSelect")
+);
+const bubbleLayoutInputs = /** @type {HTMLInputElement[]} */ (
+  [...document.querySelectorAll('input[name="bubbleMenuLayout"]')]
+);
+const bubbleStyleInputs = /** @type {HTMLInputElement[]} */ (
+  [...document.querySelectorAll('input[name="bubbleMenuStyle"]')]
 );
 /** @type {HTMLUListElement} */
 const bubbleMenuList = /** @type {HTMLUListElement} */ (document.getElementById("bubbleMenuList"));
 /** @type {HTMLParagraphElement} */
 const bubbleMenuHint = /** @type {HTMLParagraphElement} */ (document.getElementById("bubbleMenuHint"));
-/** @type {HTMLParagraphElement} */
-const settingsStatus = /** @type {HTMLParagraphElement} */ (document.getElementById("settingsStatus"));
+/** @type {HTMLDivElement} */
+const settingsStatusToast = /** @type {HTMLDivElement} */ (document.getElementById("settingsStatusToast"));
+/** @type {HTMLUListElement} */
+const shortcutList = /** @type {HTMLUListElement} */ (document.getElementById("shortcutList"));
+/** @type {HTMLButtonElement} */
+const openShortcutsButton = /** @type {HTMLButtonElement} */ (document.getElementById("openShortcutsButton"));
+
+const SHORTCUT_COMMANDS = [
+  {
+    name: "save-selection",
+    label: "Save content",
+    fallback: "Ctrl+Shift+D / Shift+Command+D"
+  },
+  {
+    name: "save-selection-with-comment",
+    label: "Save content with note",
+    fallback: "Ctrl+Shift+C / Shift+Command+C"
+  }
+];
 
 const bubbleState = {
   order: [...DEFAULT_BUBBLE_MENU_ORDER],
@@ -79,17 +108,34 @@ const bubbleState = {
 };
 
 let dragAction = null;
-let dragInsertMode = "before";
+let dragStartIndex = -1;
+let currentDropSlot = null;
 let autoSaveTimer = 0;
+let toastTimer = 0;
 
 function setStatus(text, isError = false) {
   folderStatus.textContent = text;
   folderStatus.classList.toggle("is-error", Boolean(isError));
 }
 
-function setSettingsStatus(text, isError = false) {
-  settingsStatus.textContent = text;
-  settingsStatus.classList.toggle("is-error", Boolean(isError));
+function showSettingsToast(text, isError = false, autoHideMs = 2400) {
+  settingsStatusToast.textContent = text;
+  settingsStatusToast.hidden = false;
+  settingsStatusToast.classList.add("is-visible");
+  settingsStatusToast.classList.toggle("is-error", Boolean(isError));
+
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = 0;
+  }
+
+  if (autoHideMs > 0) {
+    toastTimer = window.setTimeout(() => {
+      settingsStatusToast.classList.remove("is-visible");
+      settingsStatusToast.hidden = true;
+      toastTimer = 0;
+    }, autoHideMs);
+  }
 }
 
 function normalizeBubbleSettings(orderInput, enabledInput) {
@@ -132,32 +178,93 @@ function clearDropIndicators() {
     item.classList.remove("drop-after");
     item.classList.remove("is-dragging");
   }
+  bubbleMenuList.classList.remove("is-sorting");
+  currentDropSlot = null;
 }
 
-function moveAction(action, target, mode) {
-  if (!action || !target || action === target) {
+function clearDropTargets() {
+  const items = bubbleMenuList.querySelectorAll(".bubble-option");
+  for (const item of items) {
+    item.classList.remove("drop-before");
+    item.classList.remove("drop-after");
+  }
+}
+
+function setDropTarget(item, mode) {
+  clearDropTargets();
+  item.classList.toggle("drop-before", mode === "before");
+  item.classList.toggle("drop-after", mode === "after");
+}
+
+function moveActionToSlot(action, slot) {
+  if (!action) {
     return;
   }
 
   const currentOrder = [...bubbleState.order];
   const actionIndex = currentOrder.indexOf(action);
-  const targetIndex = currentOrder.indexOf(target);
-  if (actionIndex < 0 || targetIndex < 0) {
+  if (actionIndex < 0) {
     return;
   }
 
   currentOrder.splice(actionIndex, 1);
-  const targetIndexAfterRemoval = currentOrder.indexOf(target);
-  const insertAt = mode === "after" ? targetIndexAfterRemoval + 1 : targetIndexAfterRemoval;
+  const insertAt = Math.max(0, Math.min(slot, currentOrder.length));
   currentOrder.splice(insertAt, 0, action);
   bubbleState.order = currentOrder;
+}
+
+function getNonDraggedItems() {
+  return /** @type {HTMLElement[]} */ (
+    [...bubbleMenuList.querySelectorAll(".bubble-option")]
+  ).filter((item) => item.dataset.action !== dragAction);
+}
+
+function computeDropSlot(clientY) {
+  const items = getNonDraggedItems();
+  if (!items.length) {
+    return 0;
+  }
+
+  for (let index = 0; index < items.length; index += 1) {
+    const rect = items[index].getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    if (clientY < midpoint) {
+      return index;
+    }
+  }
+
+  return items.length;
+}
+
+function updateDropIndicator(slot) {
+  clearDropTargets();
+  if (slot == null || slot === dragStartIndex) {
+    return;
+  }
+
+  const items = getNonDraggedItems();
+  if (!items.length) {
+    return;
+  }
+
+  if (slot <= 0) {
+    setDropTarget(items[0], "before");
+    return;
+  }
+
+  if (slot >= items.length) {
+    setDropTarget(items[items.length - 1], "after");
+    return;
+  }
+
+  setDropTarget(items[slot], "before");
 }
 
 function handleActionToggle(action, checked) {
   if (!checked) {
     const next = bubbleState.enabled.filter((value) => value !== action);
     if (!next.length) {
-      setSettingsStatus("At least one bubble action must stay enabled.", true);
+      showSettingsToast("At least one bubble action must stay enabled.", true);
       renderBubbleMenuOptions();
       return;
     }
@@ -219,43 +326,20 @@ function renderBubbleMenuOptions() {
 
     item.addEventListener("dragstart", (event) => {
       dragAction = action;
+      dragStartIndex = bubbleState.order.indexOf(action);
+      currentDropSlot = null;
       item.classList.add("is-dragging");
+      bubbleMenuList.classList.add("is-sorting");
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", action);
+        event.dataTransfer.dropEffect = "move";
       }
-    });
-
-    item.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      if (dragAction === action) {
-        return;
-      }
-      const rect = item.getBoundingClientRect();
-      const offsetY = event.clientY - rect.top;
-      dragInsertMode = offsetY > rect.height / 2 ? "after" : "before";
-      item.classList.toggle("drop-before", dragInsertMode === "before");
-      item.classList.toggle("drop-after", dragInsertMode === "after");
-    });
-
-    item.addEventListener("dragleave", () => {
-      item.classList.remove("drop-before");
-      item.classList.remove("drop-after");
-    });
-
-    item.addEventListener("drop", (event) => {
-      event.preventDefault();
-      if (!dragAction) {
-        return;
-      }
-      moveAction(dragAction, action, dragInsertMode);
-      clearDropIndicators();
-      renderBubbleMenuOptions();
-      scheduleAutoSave();
     });
 
     item.addEventListener("dragend", () => {
       dragAction = null;
+      dragStartIndex = -1;
       clearDropIndicators();
     });
 
@@ -264,6 +348,43 @@ function renderBubbleMenuOptions() {
 
   updateBubbleHint();
 }
+
+bubbleMenuList.addEventListener("dragover", (event) => {
+  if (!dragAction) {
+    return;
+  }
+  event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+
+  const nextSlot = computeDropSlot(event.clientY);
+  if (nextSlot === currentDropSlot) {
+    return;
+  }
+  currentDropSlot = nextSlot;
+  updateDropIndicator(nextSlot);
+});
+
+bubbleMenuList.addEventListener("drop", (event) => {
+  if (!dragAction) {
+    return;
+  }
+  event.preventDefault();
+  if (currentDropSlot == null || currentDropSlot === dragStartIndex) {
+    dragAction = null;
+    dragStartIndex = -1;
+    clearDropIndicators();
+    return;
+  }
+
+  moveActionToSlot(dragAction, currentDropSlot);
+  dragAction = null;
+  dragStartIndex = -1;
+  clearDropIndicators();
+  renderBubbleMenuOptions();
+  scheduleAutoSave();
+});
 
 async function refreshStatus() {
   const handle = await getSavedDirectoryHandle();
@@ -291,8 +412,19 @@ async function refreshCaptureSettings() {
   syncStorageBackendUi();
   compressLargeTextInput.checked = Boolean(settings.compressLargeText);
   compressionThresholdInput.value = String(settings.compressionThresholdChars);
+  includeDiagnosticsInput.checked = Boolean(settings.includeDiagnostics);
   youtubeTranscriptStorageModeSelect.value = normalizeTranscriptStorageMode(
     settings.youtubeTranscriptStorageMode
+  );
+  setRadioValue(
+    bubbleLayoutInputs,
+    normalizeBubbleLayout(settings.bubbleMenuLayout),
+    DEFAULT_SETTINGS.bubbleMenuLayout
+  );
+  setRadioValue(
+    bubbleStyleInputs,
+    normalizeBubbleStyle(settings.bubbleMenuStyle),
+    DEFAULT_SETTINGS.bubbleMenuStyle
   );
 
   const bubble = normalizeBubbleSettings(settings.bubbleMenuOrder, settings.bubbleMenuEnabled);
@@ -308,6 +440,12 @@ function toggleOrganizationInputs(disabled) {
   folderOrganizationSection.hidden = disabled;
 }
 
+function toggleLargeContentInputs(disabled) {
+  largeContentSection.hidden = disabled;
+  compressLargeTextInput.disabled = disabled;
+  compressionThresholdInput.disabled = disabled;
+}
+
 function updateOrderVisibility() {
   const showOrder =
     storageBackendJson.checked && organizeByDateInput.checked && organizeByTypeInput.checked;
@@ -321,6 +459,7 @@ function updateOrderVisibility() {
 function syncStorageBackendUi() {
   const useJson = storageBackendJson.checked;
   toggleOrganizationInputs(!useJson);
+  toggleLargeContentInputs(!useJson);
   updateOrderVisibility();
 }
 
@@ -339,6 +478,39 @@ function normalizeTranscriptStorageMode(value) {
   return "document_text";
 }
 
+function normalizeBubbleStyle(value) {
+  if (BUBBLE_MENU_STYLES.includes(value)) {
+    return value;
+  }
+  return DEFAULT_SETTINGS.bubbleMenuStyle;
+}
+
+function normalizeBubbleLayout(value) {
+  if (BUBBLE_MENU_LAYOUTS.includes(value)) {
+    return value;
+  }
+  return DEFAULT_SETTINGS.bubbleMenuLayout;
+}
+
+function setRadioValue(inputs, value, fallback) {
+  const normalized = value || fallback;
+  let matched = false;
+  for (const input of inputs) {
+    const checked = input.value === normalized;
+    input.checked = checked;
+    matched ||= checked;
+  }
+
+  if (!matched && inputs.length > 0) {
+    inputs[0].checked = true;
+  }
+}
+
+function getCheckedRadioValue(inputs, fallback) {
+  const selected = inputs.find((input) => input.checked);
+  return selected?.value || fallback;
+}
+
 async function persistCaptureSettings() {
   const normalizedBubble = normalizeBubbleSettings(bubbleState.order, bubbleState.enabled);
   const nextSettings = {
@@ -347,9 +519,16 @@ async function persistCaptureSettings() {
       compressionThresholdInput.value,
       DEFAULT_SETTINGS.compressionThresholdChars
     ),
+    includeDiagnostics: includeDiagnosticsInput.checked,
     storageBackend: storageBackendSqlite.checked ? "sqlite" : "json",
     youtubeTranscriptStorageMode: normalizeTranscriptStorageMode(
       youtubeTranscriptStorageModeSelect.value
+    ),
+    bubbleMenuLayout: normalizeBubbleLayout(
+      getCheckedRadioValue(bubbleLayoutInputs, DEFAULT_SETTINGS.bubbleMenuLayout)
+    ),
+    bubbleMenuStyle: normalizeBubbleStyle(
+      getCheckedRadioValue(bubbleStyleInputs, DEFAULT_SETTINGS.bubbleMenuStyle)
     ),
     organizeByDate: organizeByDateInput.checked,
     organizeByType: organizeByTypeInput.checked,
@@ -359,11 +538,10 @@ async function persistCaptureSettings() {
   };
 
   await saveSettings(nextSettings);
-  setSettingsStatus("Saved.");
+  showSettingsToast("Settings saved.");
 }
 
 function scheduleAutoSave() {
-  setSettingsStatus("Saving…");
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer);
   }
@@ -371,9 +549,89 @@ function scheduleAutoSave() {
   autoSaveTimer = window.setTimeout(() => {
     autoSaveTimer = 0;
     persistCaptureSettings().catch((error) => {
-      setSettingsStatus(`Save failed: ${error?.message || "Unknown error"}`, true);
+      showSettingsToast(`Save failed: ${error?.message || "Unknown error"}`, true, 4200);
     });
   }, 250);
+}
+
+function formatShortcutLabel(shortcut) {
+  if (!shortcut) {
+    return "Not set";
+  }
+  return shortcut.replace(/\+/g, " + ").replace(/Command/g, "Cmd");
+}
+
+function renderShortcutItem(label, shortcut, isMissing = false) {
+  const item = document.createElement("li");
+  item.className = "shortcut-item";
+
+  const name = document.createElement("span");
+  name.className = "shortcut-name";
+  name.textContent = label;
+
+  const value = document.createElement("span");
+  value.className = "shortcut-value";
+  value.textContent = formatShortcutLabel(shortcut);
+  if (isMissing) {
+    value.classList.add("is-empty");
+  }
+
+  item.append(name, value);
+  return item;
+}
+
+async function getAllCommands() {
+  if (!chrome?.commands?.getAll) {
+    return [];
+  }
+
+  return await new Promise((resolve, reject) => {
+    chrome.commands.getAll((commands) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(commands || []);
+    });
+  });
+}
+
+async function refreshShortcutList() {
+  shortcutList.textContent = "";
+
+  let commands = [];
+  try {
+    commands = await getAllCommands();
+  } catch (error) {
+    shortcutList.appendChild(
+      renderShortcutItem("Shortcuts unavailable", error?.message || "Could not load shortcuts.", true)
+    );
+    return;
+  }
+
+  const commandsByName = new Map(commands.map((command) => [command.name, command]));
+  for (const definition of SHORTCUT_COMMANDS) {
+    const command = commandsByName.get(definition.name);
+    const shortcut = command?.shortcut || "";
+    const isMissing = !command?.shortcut;
+    const label = isMissing ? `${definition.label} (default: ${definition.fallback})` : definition.label;
+    shortcutList.appendChild(renderShortcutItem(label, shortcut, isMissing));
+  }
+}
+
+function openChromeShortcutsPage() {
+  const url = "chrome://extensions/shortcuts";
+  if (!chrome?.tabs?.create) {
+    showSettingsToast("Open chrome://extensions/shortcuts to edit keyboard shortcuts.", true, 4200);
+    return;
+  }
+  chrome.tabs.create({ url }, () => {
+    const error = chrome.runtime.lastError;
+    if (error) {
+      showSettingsToast("Open chrome://extensions/shortcuts to edit keyboard shortcuts.", true, 4200);
+    }
+  });
 }
 
 async function chooseFolder() {
@@ -518,9 +776,20 @@ organizeOrderSelect.addEventListener("change", scheduleAutoSave);
 compressLargeTextInput.addEventListener("change", scheduleAutoSave);
 compressionThresholdInput.addEventListener("input", scheduleAutoSave);
 compressionThresholdInput.addEventListener("change", scheduleAutoSave);
+includeDiagnosticsInput.addEventListener("change", scheduleAutoSave);
 youtubeTranscriptStorageModeSelect.addEventListener("change", scheduleAutoSave);
+for (const input of bubbleLayoutInputs) {
+  input.addEventListener("change", scheduleAutoSave);
+}
+for (const input of bubbleStyleInputs) {
+  input.addEventListener("change", scheduleAutoSave);
+}
+openShortcutsButton.addEventListener("click", openChromeShortcutsPage);
+window.addEventListener("focus", () => {
+  refreshShortcutList().catch(() => {});
+});
 
 refreshStatus().catch((error) => setStatus(error?.message || "Failed", true));
 refreshCaptureSettings()
-  .then(() => setSettingsStatus("All settings save automatically."))
-  .catch((error) => setSettingsStatus(error?.message || "Failed", true));
+  .catch((error) => showSettingsToast(error?.message || "Failed", true, 4200));
+refreshShortcutList().catch((error) => showSettingsToast(error?.message || "Failed", true, 4200));
