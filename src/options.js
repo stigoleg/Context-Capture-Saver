@@ -70,8 +70,8 @@ const youtubeTranscriptStorageModeSelect = /** @type {HTMLSelectElement} */ (
 const bubbleMenuList = /** @type {HTMLUListElement} */ (document.getElementById("bubbleMenuList"));
 /** @type {HTMLParagraphElement} */
 const bubbleMenuHint = /** @type {HTMLParagraphElement} */ (document.getElementById("bubbleMenuHint"));
-/** @type {HTMLButtonElement} */
-const saveSettingsButton = /** @type {HTMLButtonElement} */ (document.getElementById("saveSettingsButton"));
+/** @type {HTMLParagraphElement} */
+const settingsStatus = /** @type {HTMLParagraphElement} */ (document.getElementById("settingsStatus"));
 
 const bubbleState = {
   order: [...DEFAULT_BUBBLE_MENU_ORDER],
@@ -80,10 +80,16 @@ const bubbleState = {
 
 let dragAction = null;
 let dragInsertMode = "before";
+let autoSaveTimer = 0;
 
 function setStatus(text, isError = false) {
   folderStatus.textContent = text;
   folderStatus.classList.toggle("is-error", Boolean(isError));
+}
+
+function setSettingsStatus(text, isError = false) {
+  settingsStatus.textContent = text;
+  settingsStatus.classList.toggle("is-error", Boolean(isError));
 }
 
 function normalizeBubbleSettings(orderInput, enabledInput) {
@@ -151,7 +157,7 @@ function handleActionToggle(action, checked) {
   if (!checked) {
     const next = bubbleState.enabled.filter((value) => value !== action);
     if (!next.length) {
-      setStatus("At least one bubble action must stay enabled.", true);
+      setSettingsStatus("At least one bubble action must stay enabled.", true);
       renderBubbleMenuOptions();
       return;
     }
@@ -161,6 +167,7 @@ function handleActionToggle(action, checked) {
   }
 
   updateBubbleHint();
+  scheduleAutoSave();
 }
 
 function updateBubbleHint() {
@@ -244,6 +251,7 @@ function renderBubbleMenuOptions() {
       moveAction(dragAction, action, dragInsertMode);
       clearDropIndicators();
       renderBubbleMenuOptions();
+      scheduleAutoSave();
     });
 
     item.addEventListener("dragend", () => {
@@ -280,7 +288,7 @@ async function refreshCaptureSettings() {
   organizeByDateInput.checked = Boolean(settings.organizeByDate);
   organizeByTypeInput.checked = Boolean(settings.organizeByType);
   organizeOrderSelect.value = settings.organizeOrder || "type_date";
-  toggleOrganizationInputs(settings.storageBackend === "sqlite");
+  syncStorageBackendUi();
   compressLargeTextInput.checked = Boolean(settings.compressLargeText);
   compressionThresholdInput.value = String(settings.compressionThresholdChars);
   youtubeTranscriptStorageModeSelect.value = normalizeTranscriptStorageMode(
@@ -301,12 +309,19 @@ function toggleOrganizationInputs(disabled) {
 }
 
 function updateOrderVisibility() {
-  const showOrder = organizeByDateInput.checked && organizeByTypeInput.checked;
+  const showOrder =
+    storageBackendJson.checked && organizeByDateInput.checked && organizeByTypeInput.checked;
   organizeOrderSelect.disabled = !showOrder;
   const orderField = /** @type {HTMLElement|null} */ (organizeOrderSelect.closest(".field"));
   if (orderField) {
     orderField.hidden = !showOrder;
   }
+}
+
+function syncStorageBackendUi() {
+  const useJson = storageBackendJson.checked;
+  toggleOrganizationInputs(!useJson);
+  updateOrderVisibility();
 }
 
 function clampNumber(input, fallback) {
@@ -344,7 +359,21 @@ async function persistCaptureSettings() {
   };
 
   await saveSettings(nextSettings);
-  setStatus("Capture settings saved.");
+  setSettingsStatus("Saved.");
+}
+
+function scheduleAutoSave() {
+  setSettingsStatus("Saving…");
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+  }
+
+  autoSaveTimer = window.setTimeout(() => {
+    autoSaveTimer = 0;
+    persistCaptureSettings().catch((error) => {
+      setSettingsStatus(`Save failed: ${error?.message || "Unknown error"}`, true);
+    });
+  }, 250);
 }
 
 async function chooseFolder() {
@@ -469,22 +498,29 @@ clearFolderButton.addEventListener("click", () => {
   clearFolder().catch((error) => setStatus(error?.message || "Failed", true));
 });
 
-saveSettingsButton.addEventListener("click", () => {
-  persistCaptureSettings().catch((error) => setStatus(error?.message || "Failed", true));
-});
-
 storageBackendJson.addEventListener("change", () => {
-  toggleOrganizationInputs(false);
-  updateOrderVisibility();
+  syncStorageBackendUi();
+  scheduleAutoSave();
 });
 storageBackendSqlite.addEventListener("change", () => {
-  toggleOrganizationInputs(true);
-  updateOrderVisibility();
+  syncStorageBackendUi();
+  scheduleAutoSave();
 });
-organizeByDateInput.addEventListener("change", updateOrderVisibility);
-organizeByTypeInput.addEventListener("change", updateOrderVisibility);
+organizeByDateInput.addEventListener("change", () => {
+  updateOrderVisibility();
+  scheduleAutoSave();
+});
+organizeByTypeInput.addEventListener("change", () => {
+  updateOrderVisibility();
+  scheduleAutoSave();
+});
+organizeOrderSelect.addEventListener("change", scheduleAutoSave);
+compressLargeTextInput.addEventListener("change", scheduleAutoSave);
+compressionThresholdInput.addEventListener("input", scheduleAutoSave);
+compressionThresholdInput.addEventListener("change", scheduleAutoSave);
+youtubeTranscriptStorageModeSelect.addEventListener("change", scheduleAutoSave);
 
 refreshStatus().catch((error) => setStatus(error?.message || "Failed", true));
 refreshCaptureSettings()
-  .then(updateOrderVisibility)
-  .catch((error) => setStatus(error?.message || "Failed", true));
+  .then(() => setSettingsStatus("All settings save automatically."))
+  .catch((error) => setSettingsStatus(error?.message || "Failed", true));

@@ -81,9 +81,9 @@
         <label class="field">
           <span>Transcript mode</span>
           <select id="youtubeTranscriptStorageModeSelect">
-            <option value="document_text">Store full transcript in <code>documentText</code></option>
-            <option value="segments">Store timestamped <code>transcriptSegments</code> only</option>
-            <option value="both">Store both <code>documentText</code> and <code>transcriptSegments</code></option>
+            <option value="document_text">Save plain transcript text only (recommended)</option>
+            <option value="segments">Save timestamped transcript lines only</option>
+            <option value="both">Save both plain text and timestamped lines</option>
           </select>
         </label>
       </section>
@@ -104,7 +104,7 @@
       </section>
 
       <footer class="settings-footer">
-        <button id="saveSettingsButton" class="save">Save settings</button>
+        <p id="settingsStatus" class="status-inline">All settings save automatically.</p>
         <p class="hint">
           Shortcuts: <code>Shift+Cmd+D</code>/<code>Shift+Cmd+C</code> on macOS,
           <code>Ctrl+Shift+D</code>/<code>Ctrl+Shift+C</code> elsewhere.

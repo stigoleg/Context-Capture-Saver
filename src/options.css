@@ -242,14 +242,20 @@ button.ghost {
   justify-items: start;
 }
 
-.settings-footer .save {
-  min-width: 156px;
-}
-
 .hint {
   margin: 0;
   font-size: 12px;
   color: var(--muted);
+}
+
+.status-inline {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status-inline.is-error {
+  color: var(--err-text);
 }
 
 code {
