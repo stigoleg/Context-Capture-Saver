@@ -11,6 +11,7 @@ import {
   normalizeBubbleMenuStyle
 } from "./bubble-settings.js";
 import { STORAGE_BACKENDS, normalizeStorageBackend } from "./storage-backend.js";
+import { LOG_LEVELS, normalizeLogLevel } from "./logger.js";
 
 export {
   BUBBLE_MENU_ACTIONS,
@@ -23,7 +24,9 @@ export {
   normalizeBubbleMenuActions,
   normalizeBubbleMenuLayout,
   normalizeBubbleMenuStyle,
-  STORAGE_BACKENDS
+  STORAGE_BACKENDS,
+  LOG_LEVELS,
+  normalizeLogLevel
 };
 
 export const DEFAULT_SETTINGS = {
@@ -32,6 +35,7 @@ export const DEFAULT_SETTINGS = {
   compressionThresholdChars: 75000,
   includeJsonChunks: false,
   includeDiagnostics: false,
+  logLevel: "error",
   storageBackend: "json",
   youtubeTranscriptStorageMode: "document_text",
   organizeByDate: false,
@@ -78,6 +82,7 @@ function normalizeSettings(input) {
     storageBackend,
     includeJsonChunks: merged.includeJsonChunks === true,
     includeDiagnostics: merged.includeDiagnostics === true,
+    logLevel: normalizeLogLevel(merged.logLevel, DEFAULT_SETTINGS.logLevel),
     bubbleMenuLayout,
     bubbleMenuStyle,
     bubbleMenuOrder: bubble.bubbleMenuOrder,

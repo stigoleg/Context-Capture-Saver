@@ -31,6 +31,7 @@ import {
   getSavedDirectoryHandle,
   writeJsonToDirectory
 } from "./storage.js";
+import { createLogger, normalizeLogLevel, setGlobalLogLevel } from "./logger.js";
 
 const MENU_SAVE_SELECTION = "save-selection";
 const MENU_SAVE_WITH_COMMENT = "save-with-comment";
@@ -49,13 +50,31 @@ const START_NOTIFICATION_ID = "capture-start";
 const ERROR_NOTIFICATION_ID = "capture-error";
 const CAPTURE_QUEUE_TIMEOUT_MS = 120000;
 
+const backgroundLogger = createLogger({ module: "background" });
+const captureQueueLogger = backgroundLogger.child("capture-queue");
 const captureQueue = new SaveOperationQueue({
   defaultTimeoutMs: CAPTURE_QUEUE_TIMEOUT_MS,
-  logger: console
+  logger: captureQueueLogger
 });
 const captureAbortControllersByTab = new Map();
 
 /** @typedef {"save-selection"|"save-with-comment"|"add-highlight"|"add-note"|"save-youtube-transcript"|"save-youtube-transcript-with-comment"|"COMMAND_SAVE_SELECTION"|"COMMAND_SAVE_SELECTION_WITH_COMMENT"|"INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT"} CaptureActionKind */
+
+function applyLogLevelFromSettings(settings) {
+  const level = normalizeLogLevel(settings?.logLevel, "error");
+  setGlobalLogLevel(level);
+  return level;
+}
+
+async function initializeLogLevel() {
+  try {
+    const settings = await getSettings();
+    const level = applyLogLevelFromSettings(settings);
+    backgroundLogger.info("Log level initialized", { level });
+  } catch (error) {
+    backgroundLogger.warn("Failed to initialize log level from settings", { error });
+  }
+}
 
 function throwIfAborted(signal, fallbackMessage = "Capture cancelled") {
   if (!signal?.aborted) {
@@ -1492,6 +1511,7 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
   const signal = options.signal || null;
   let kindLabel = "selection";
   let resolvedKind = kind;
+  const runLogger = backgroundLogger.child("action").withRun();
   try {
     throwIfAborted(signal);
 
@@ -1543,7 +1563,7 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
       await setLastCaptureStatus({ ok: true, kind: "selection", fileName });
       await notifySaved(tabId, record, fileName);
       await clearNotesPanel(tabId);
-      console.info("Saved capture", fileName);
+      runLogger.info("Saved capture", { kind: "selection", fileName, tabId });
       return { ok: true, fileName };
     }
 
@@ -1557,7 +1577,11 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
       await setLastCaptureStatus({ ok: true, kind: "selection_with_highlight", fileName });
       await notifySaved(tabId, record, fileName);
       await clearNotesPanel(tabId);
-      console.info("Saved capture with highlight", fileName);
+      runLogger.info("Saved capture with highlight", {
+        kind: "selection_with_highlight",
+        fileName,
+        tabId
+      });
       return { ok: true, fileName };
     }
 
@@ -1572,7 +1596,7 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
       await setLastCaptureStatus({ ok: true, kind: "selection_with_note", fileName });
       await notifySaved(tabId, record, fileName);
       await clearNotesPanel(tabId);
-      console.info("Saved capture with note", fileName);
+      runLogger.info("Saved capture with note", { kind: "selection_with_note", fileName, tabId });
       return { ok: true, fileName };
     }
 
@@ -1587,7 +1611,7 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
       await setLastCaptureStatus({ ok: true, kind: "selection_with_note", fileName });
       await notifySaved(tabId, record, fileName);
       await clearNotesPanel(tabId);
-      console.info("Saved capture with note", fileName);
+      runLogger.info("Saved capture with note", { kind: "selection_with_note", fileName, tabId });
       return { ok: true, fileName };
     }
 
@@ -1599,7 +1623,7 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
       await setLastCaptureStatus({ ok: true, kind: "youtube_transcript", fileName });
       await notifySaved(tabId, record, fileName);
       await clearNotesPanel(tabId);
-      console.info("Saved capture", fileName);
+      runLogger.info("Saved transcript capture", { kind: "youtube_transcript", fileName, tabId });
       return { ok: true, fileName };
     }
 
@@ -1611,7 +1635,7 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
       await setLastCaptureStatus({ ok: true, kind: "transcript_with_note", fileName });
       await notifySaved(tabId, record, fileName);
       await clearNotesPanel(tabId);
-      console.info("Saved transcript with note", fileName);
+      runLogger.info("Saved transcript with note", { kind: "transcript_with_note", fileName, tabId });
       return { ok: true, fileName };
     }
 
@@ -1628,7 +1652,7 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
     if (error?.message?.includes("No folder selected")) {
       chrome.runtime.openOptionsPage();
     }
-    console.error(error);
+    runLogger.error("Capture action failed", { kind: kindLabel, tabId, error });
     return {
       ok: false,
       error: error?.message || "Unknown error"
@@ -1639,13 +1663,29 @@ async function runAction(kind, tabId, selectionOverride = "", options = {}) {
 chrome.runtime.onInstalled.addListener(() => {
   createMenus()
     .then(refreshMenusForActiveTab)
-    .catch((error) => console.error("Failed to create context menus", error));
+    .catch((error) => backgroundLogger.error("Failed to create context menus", { error }));
 });
 
 chrome.runtime.onStartup.addListener(() => {
   createMenus()
     .then(refreshMenusForActiveTab)
-    .catch((error) => console.error("Failed to create context menus", error));
+    .catch((error) => backgroundLogger.error("Failed to create context menus", { error }));
+});
+
+initializeLogLevel().catch((error) => {
+  backgroundLogger.warn("Failed to initialize logging", { error });
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") {
+    return;
+  }
+  const captureSettingsChange = changes?.captureSettings;
+  if (!captureSettingsChange || !captureSettingsChange.newValue) {
+    return;
+  }
+  const level = applyLogLevelFromSettings(captureSettingsChange.newValue);
+  backgroundLogger.info("Log level updated", { level });
 });
 
 chrome.windows.onRemoved.addListener((windowId) => {
@@ -1688,39 +1728,61 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
   if (info.menuItemId === MENU_SAVE_SELECTION) {
     queueCaptureAction(MENU_SAVE_SELECTION, tab.id, info.selectionText || "").catch((error) =>
-      console.error(error)
+      backgroundLogger.error("Capture action failed", {
+        action: MENU_SAVE_SELECTION,
+        tabId: tab.id,
+        error
+      })
     );
     return;
   }
 
   if (info.menuItemId === MENU_SAVE_WITH_COMMENT) {
     queueCaptureAction(MENU_SAVE_WITH_COMMENT, tab.id, info.selectionText || "").catch((error) =>
-      console.error(error)
+      backgroundLogger.error("Capture action failed", {
+        action: MENU_SAVE_WITH_COMMENT,
+        tabId: tab.id,
+        error
+      })
     );
     return;
   }
 
   if (info.menuItemId === MENU_SAVE_YOUTUBE_TRANSCRIPT) {
-    queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id).catch((error) => console.error(error));
+    queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id).catch((error) =>
+      backgroundLogger.error("Capture action failed", {
+        action: MENU_SAVE_YOUTUBE_TRANSCRIPT,
+        tabId: tab.id,
+        error
+      })
+    );
     return;
   }
 
   if (info.menuItemId === MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT) {
     queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id).catch((error) =>
-      console.error(error)
+      backgroundLogger.error("Capture action failed", {
+        action: MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT,
+        tabId: tab.id,
+        error
+      })
     );
     return;
   }
 
   if (info.menuItemId === MENU_ADD_HIGHLIGHT) {
     const selectionOverride = info.selectionText || "";
-    handleAddHighlight(tab.id, selectionOverride).catch((error) => console.error(error));
+    handleAddHighlight(tab.id, selectionOverride).catch((error) =>
+      backgroundLogger.error("Add highlight failed", { tabId: tab.id, error })
+    );
     return;
   }
 
   if (info.menuItemId === MENU_ADD_NOTE) {
     const selectionOverride = info.selectionText || "";
-    handleAddNote(tab.id, selectionOverride).catch((error) => console.error(error));
+    handleAddNote(tab.id, selectionOverride).catch((error) =>
+      backgroundLogger.error("Add note failed", { tabId: tab.id, error })
+    );
   }
 });
 
@@ -1735,11 +1797,15 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (command === "save-selection") {
-    queueCaptureAction(COMMAND_SAVE_SELECTION, tab.id).catch((error) => console.error(error));
+    queueCaptureAction(COMMAND_SAVE_SELECTION, tab.id).catch((error) =>
+      backgroundLogger.error("Command capture failed", { command, tabId: tab.id, error })
+    );
     return;
   }
 
-  queueCaptureAction(COMMAND_SAVE_SELECTION_WITH_COMMENT, tab.id).catch((error) => console.error(error));
+  queueCaptureAction(COMMAND_SAVE_SELECTION_WITH_COMMENT, tab.id).catch((error) =>
+    backgroundLogger.error("Command capture failed", { command, tabId: tab.id, error })
+  );
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -8,6 +8,7 @@ import {
   DEFAULT_BUBBLE_MENU_ORDER,
   DEFAULT_SETTINGS,
   getSettings,
+  normalizeLogLevel,
   normalizeBubbleMenuActions,
   normalizeBubbleMenuLayout,
   normalizeBubbleMenuStyle,
@@ -88,6 +89,8 @@ const compressionThresholdInput = /** @type {HTMLInputElement} */ (document.getE
 const includeJsonChunksInput = /** @type {HTMLInputElement} */ (document.getElementById("includeJsonChunksInput"));
 /** @type {HTMLInputElement} */
 const includeDiagnosticsInput = /** @type {HTMLInputElement} */ (document.getElementById("includeDiagnosticsInput"));
+/** @type {HTMLSelectElement} */
+const logLevelSelect = /** @type {HTMLSelectElement} */ (document.getElementById("logLevelSelect"));
 /** @type {HTMLSelectElement} */
 const youtubeTranscriptStorageModeSelect = /** @type {HTMLSelectElement} */ (
   document.getElementById("youtubeTranscriptStorageModeSelect")
@@ -418,6 +421,7 @@ async function refreshCaptureSettings() {
   compressionThresholdInput.value = String(settings.compressionThresholdChars);
   includeJsonChunksInput.checked = Boolean(settings.includeJsonChunks);
   includeDiagnosticsInput.checked = Boolean(settings.includeDiagnostics);
+  logLevelSelect.value = normalizeLogLevel(settings.logLevel, DEFAULT_SETTINGS.logLevel);
   youtubeTranscriptStorageModeSelect.value = normalizeTranscriptStorageMode(
     settings.youtubeTranscriptStorageMode
   );
@@ -527,6 +531,7 @@ async function persistCaptureSettings() {
     ),
     includeJsonChunks: includeJsonChunksInput.checked,
     includeDiagnostics: includeDiagnosticsInput.checked,
+    logLevel: normalizeLogLevel(logLevelSelect.value, DEFAULT_SETTINGS.logLevel),
     storageBackend: selectedStorageBackend(),
     youtubeTranscriptStorageMode: normalizeTranscriptStorageMode(
       youtubeTranscriptStorageModeSelect.value
@@ -826,6 +831,7 @@ compressionThresholdInput.addEventListener("input", scheduleAutoSave);
 compressionThresholdInput.addEventListener("change", scheduleAutoSave);
 includeJsonChunksInput.addEventListener("change", scheduleAutoSave);
 includeDiagnosticsInput.addEventListener("change", scheduleAutoSave);
+logLevelSelect.addEventListener("change", scheduleAutoSave);
 youtubeTranscriptStorageModeSelect.addEventListener("change", scheduleAutoSave);
 for (const input of bubbleLayoutInputs) {
   input.addEventListener("change", scheduleAutoSave);

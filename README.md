@@ -97,6 +97,7 @@ npm run build:firefox # build only Firefox
    - storage backend (`JSON`, `SQLite`, `JSON + SQLite`)
    - JSON folder organization options
    - compression and diagnostics options
+   - logging level (`off`, `error`, `info`, `debug`) for runtime observability
    - optional JSON structured chunk export
    - bubble menu layout/style/actions
 

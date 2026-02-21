@@ -317,3 +317,10 @@ Desired result: Consistent log utility with configurable levels and safe message
 - [ ] Add tests for log gating behavior.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `observability: add structured logger controls`.
+- [x] Add log level setting (`off`, `error`, `info`, `debug`).
+- [x] Replace scattered `console.*` with logger utility.
+- [x] Redact sensitive text by default.
+- [x] Add run correlation IDs and module tags.
+- [x] Add tests for log gating behavior.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `observability: add structured logger controls`.
