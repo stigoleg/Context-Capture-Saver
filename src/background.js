@@ -1,5 +1,6 @@
 import { applyContentPolicies } from "./processing.js";
 import { buildCaptureRecord, buildFileName, validateCaptureRecord } from "./schema.js";
+import { SaveOperationQueue, createAbortErrorForQueue } from "./save-queue.js";
 import { getLastCaptureStatus, getSettings, setLastCaptureStatus } from "./settings.js";
 import { buildJsonChunksForRecord, saveRecordToSqlite } from "./sqlite.js";
 import {
@@ -24,6 +25,85 @@ const OFFSCREEN_URL = chrome.runtime.getURL("src/offscreen.html");
 const START_NOTIFICATION_ID = "capture-start";
 const ERROR_NOTIFICATION_ID = "capture-error";
 const JSON_OUTPUT_ROOT_DIR = "json";
+const CAPTURE_QUEUE_TIMEOUT_MS = 120000;
+
+const captureQueue = new SaveOperationQueue({
+  defaultTimeoutMs: CAPTURE_QUEUE_TIMEOUT_MS,
+  logger: console
+});
+const captureAbortControllersByTab = new Map();
+
+function throwIfAborted(signal, fallbackMessage = "Capture cancelled") {
+  if (!signal?.aborted) {
+    return;
+  }
+  const reason = signal.reason;
+  if (reason instanceof Error) {
+    throw reason;
+  }
+  const error = new Error(reason ? String(reason) : fallbackMessage);
+  error.name = "AbortError";
+  throw error;
+}
+
+function registerCaptureAbortController(tabId, controller) {
+  if (!Number.isInteger(tabId) || !controller) {
+    return;
+  }
+  const existing = captureAbortControllersByTab.get(tabId);
+  if (existing) {
+    existing.add(controller);
+    return;
+  }
+  captureAbortControllersByTab.set(tabId, new Set([controller]));
+}
+
+function unregisterCaptureAbortController(tabId, controller) {
+  if (!Number.isInteger(tabId) || !controller) {
+    return;
+  }
+  const existing = captureAbortControllersByTab.get(tabId);
+  if (!existing) {
+    return;
+  }
+  existing.delete(controller);
+  if (existing.size === 0) {
+    captureAbortControllersByTab.delete(tabId);
+  }
+}
+
+function cancelCaptureQueueForTab(tabId, reason = "Capture cancelled because the tab changed.") {
+  if (!Number.isInteger(tabId)) {
+    return;
+  }
+  const existing = captureAbortControllersByTab.get(tabId);
+  if (!existing || existing.size === 0) {
+    return;
+  }
+  for (const controller of existing) {
+    if (!controller.signal.aborted) {
+      controller.abort(createAbortErrorForQueue(reason));
+    }
+  }
+  existing.clear();
+  captureAbortControllersByTab.delete(tabId);
+}
+
+function queueCaptureAction(kind, tabId, selectionOverride = "") {
+  const controller = new AbortController();
+  registerCaptureAbortController(tabId, controller);
+
+  return captureQueue
+    .enqueue({
+      label: `capture:${kind}:${tabId}`,
+      timeoutMs: CAPTURE_QUEUE_TIMEOUT_MS,
+      signal: controller.signal,
+      task: ({ signal }) => runAction(kind, tabId, selectionOverride, { signal })
+    })
+    .finally(() => {
+      unregisterCaptureAbortController(tabId, controller);
+    });
+}
 
 async function extractPdfFromModule(url, options = {}) {
   const module = await import("./pdf.js");
@@ -1089,8 +1169,12 @@ async function resolvePdfSelection(pdfData, selectedText) {
   return { text: "", source: "none" };
 }
 
-async function saveRecord(record) {
+async function saveRecord(record, options = {}) {
+  const signal = options.signal || null;
+  throwIfAborted(signal);
+
   const settings = await getSettings();
+  throwIfAborted(signal);
   const directoryHandle = await getSavedDirectoryHandle();
 
   if (!directoryHandle) {
@@ -1103,6 +1187,7 @@ async function saveRecord(record) {
     chrome.runtime.openOptionsPage();
     throw new Error("Folder permission denied. Re-select your folder in settings.");
   }
+  throwIfAborted(signal);
 
   const storageBackend =
     settings.storageBackend === "sqlite" || settings.storageBackend === "both"
@@ -1112,6 +1197,7 @@ async function saveRecord(record) {
   const writesJson = storageBackend === "json" || storageBackend === "both";
 
   let processed = await applyContentPolicies(record, settings);
+  throwIfAborted(signal);
   if (writesJson && settings.includeJsonChunks === true) {
     processed = {
       ...processed,
@@ -1121,6 +1207,7 @@ async function saveRecord(record) {
       }
     };
   }
+  throwIfAborted(signal);
 
   const validation = validateCaptureRecord(processed);
   if (!validation.valid) {
@@ -1130,6 +1217,7 @@ async function saveRecord(record) {
   let sqliteFileName = null;
   let sqliteError = null;
   if (writesSqlite) {
+    throwIfAborted(signal);
     try {
       sqliteFileName = await saveRecordToSqlite(directoryHandle, processed);
     } catch (error) {
@@ -1140,6 +1228,7 @@ async function saveRecord(record) {
   let jsonStoredPath = null;
   let jsonError = null;
   if (writesJson) {
+    throwIfAborted(signal);
     const fileName = buildFileName(processed);
     const subdirectories = buildSubdirectories(processed, settings);
     try {
@@ -1478,7 +1567,11 @@ async function notifyError(tabId, error) {
 
 async function handleSelectionSave(tabId, selectionOverride = "", options = {}) {
   const includeSelectionAnnotation = options.includeSelectionAnnotation === true;
+  const signal = options.signal || null;
+  throwIfAborted(signal);
+
   const capture = await captureFromTab(tabId, "CAPTURE_SELECTION");
+  throwIfAborted(signal);
   if (!capture?.ok) {
     if (capture?.missingReceiver) {
       const selection = await resolveSelection(tabId, selectionOverride, {
@@ -1525,13 +1618,17 @@ async function handleSelectionSave(tabId, selectionOverride = "", options = {}) 
     diagnostics: capture.diagnostics
   });
 
-  const { fileName, record: savedRecord } = await saveRecord(record);
+  const { fileName, record: savedRecord } = await saveRecord(record, { signal });
   return { fileName, record: savedRecord };
 }
 
 async function handleSelectionSaveWithComment(tabId, selectionOverride = "", options = {}) {
   const includeSelectionAnnotation = options.includeSelectionAnnotation === true;
+  const signal = options.signal || null;
+  throwIfAborted(signal);
+
   const capture = await captureFromTab(tabId, "CAPTURE_SELECTION_WITH_COMMENT");
+  throwIfAborted(signal);
   if (!capture?.ok) {
     if (capture?.missingReceiver) {
       const comment = await requestCommentFromExtension();
@@ -1584,12 +1681,16 @@ async function handleSelectionSaveWithComment(tabId, selectionOverride = "", opt
     diagnostics: capture.diagnostics
   });
 
-  const { fileName, record: savedRecord } = await saveRecord(record);
+  const { fileName, record: savedRecord } = await saveRecord(record, { signal });
   return { fileName, record: savedRecord };
 }
 
-async function handleYouTubeTranscriptSave(tabId, withComment = false) {
+async function handleYouTubeTranscriptSave(tabId, withComment = false, options = {}) {
+  const signal = options.signal || null;
+  throwIfAborted(signal);
+
   const settings = await getSettings();
+  throwIfAborted(signal);
   const transcriptStorageMode = normalizeTranscriptStorageMode(
     settings.youtubeTranscriptStorageMode
   );
@@ -1599,6 +1700,7 @@ async function handleYouTubeTranscriptSave(tabId, withComment = false) {
     withComment ? "CAPTURE_YOUTUBE_TRANSCRIPT_WITH_COMMENT" : "CAPTURE_YOUTUBE_TRANSCRIPT",
     { frameId: 0 }
   );
+  throwIfAborted(signal);
   if (!capture?.ok) {
     throw new Error(capture?.error || "Failed to capture YouTube transcript");
   }
@@ -1607,6 +1709,7 @@ async function handleYouTubeTranscriptSave(tabId, withComment = false) {
     Array.isArray(capture.transcriptSegments) && capture.transcriptSegments.length > 0;
   if (!hasSegments) {
     const fallback = await captureYouTubeTranscriptFromMainWorld(tabId);
+    throwIfAborted(signal);
     if (fallback?.ok && Array.isArray(fallback.segments) && fallback.segments.length > 0) {
       const missingFields = Array.isArray(capture?.diagnostics?.missingFields)
         ? capture.diagnostics.missingFields.filter((field) => field !== "transcript")
@@ -1666,14 +1769,17 @@ async function handleYouTubeTranscriptSave(tabId, withComment = false) {
     }
   });
 
-  const { fileName, record: savedRecord } = await saveRecord(record);
+  const { fileName, record: savedRecord } = await saveRecord(record, { signal });
   return { fileName, record: savedRecord };
 }
 
-async function runAction(kind, tabId, selectionOverride = "") {
+async function runAction(kind, tabId, selectionOverride = "", options = {}) {
+  const signal = options.signal || null;
   let kindLabel = "selection";
   let resolvedKind = kind;
   try {
+    throwIfAborted(signal);
+
     if (kind === INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT) {
       kindLabel = "selection_with_highlight";
     }
@@ -1685,6 +1791,7 @@ async function runAction(kind, tabId, selectionOverride = "") {
     }
 
     await assertFolderAccess();
+    throwIfAborted(signal);
     let forceNotification = false;
     let isYouTube = false;
     try {
@@ -1709,10 +1816,12 @@ async function runAction(kind, tabId, selectionOverride = "") {
     }
 
     await notifyStart(tabId, kindLabel, forceNotification);
+    throwIfAborted(signal);
 
     if (resolvedKind === MENU_SAVE_SELECTION || resolvedKind === COMMAND_SAVE_SELECTION) {
       const { fileName, record } = await handleSelectionSave(tabId, selectionOverride, {
-        includeSelectionAnnotation: false
+        includeSelectionAnnotation: false,
+        signal
       });
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
@@ -1725,7 +1834,8 @@ async function runAction(kind, tabId, selectionOverride = "") {
 
     if (resolvedKind === INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT) {
       const { fileName, record } = await handleSelectionSave(tabId, selectionOverride, {
-        includeSelectionAnnotation: true
+        includeSelectionAnnotation: true,
+        signal
       });
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
@@ -1739,7 +1849,8 @@ async function runAction(kind, tabId, selectionOverride = "") {
     if (resolvedKind === COMMAND_SAVE_SELECTION_WITH_COMMENT) {
       kindLabel = "selection_with_comment";
       const { fileName, record } = await handleSelectionSaveWithComment(tabId, selectionOverride, {
-        includeSelectionAnnotation: false
+        includeSelectionAnnotation: false,
+        signal
       });
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
@@ -1753,7 +1864,8 @@ async function runAction(kind, tabId, selectionOverride = "") {
     if (resolvedKind === MENU_SAVE_WITH_COMMENT) {
       kindLabel = "selection_with_comment";
       const { fileName, record } = await handleSelectionSaveWithComment(tabId, selectionOverride, {
-        includeSelectionAnnotation: false
+        includeSelectionAnnotation: false,
+        signal
       });
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
@@ -1766,7 +1878,7 @@ async function runAction(kind, tabId, selectionOverride = "") {
 
     if (resolvedKind === MENU_SAVE_YOUTUBE_TRANSCRIPT) {
       kindLabel = "youtube_transcript";
-      const { fileName, record } = await handleYouTubeTranscriptSave(tabId, false);
+      const { fileName, record } = await handleYouTubeTranscriptSave(tabId, false, { signal });
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
       await setLastCaptureStatus({ ok: true, kind: "youtube_transcript", fileName });
@@ -1778,7 +1890,7 @@ async function runAction(kind, tabId, selectionOverride = "") {
 
     if (resolvedKind === MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT) {
       kindLabel = "youtube_transcript";
-      const { fileName, record } = await handleYouTubeTranscriptSave(tabId, true);
+      const { fileName, record } = await handleYouTubeTranscriptSave(tabId, true, { signal });
       await setBadge(tabId, "OK", "#2e7d32");
       chrome.notifications.clear(START_NOTIFICATION_ID).catch(() => undefined);
       await setLastCaptureStatus({ ok: true, kind: "transcript_with_note", fileName });
@@ -1832,11 +1944,13 @@ chrome.windows.onRemoved.addListener((windowId) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  cancelCaptureQueueForTab(tabId, "Capture cancelled because the tab was closed.");
   pendingAnnotationsByTab.delete(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading") {
+    cancelCaptureQueueForTab(tabId, "Capture cancelled because the page started loading.");
     pendingAnnotationsByTab.delete(tabId);
     clearNotesPanel(tabId).catch(() => undefined);
   }
@@ -1858,26 +1972,26 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 
   if (info.menuItemId === MENU_SAVE_SELECTION) {
-    runAction(MENU_SAVE_SELECTION, tab.id, info.selectionText || "").catch((error) =>
+    queueCaptureAction(MENU_SAVE_SELECTION, tab.id, info.selectionText || "").catch((error) =>
       console.error(error)
     );
     return;
   }
 
   if (info.menuItemId === MENU_SAVE_WITH_COMMENT) {
-    runAction(MENU_SAVE_WITH_COMMENT, tab.id, info.selectionText || "").catch((error) =>
+    queueCaptureAction(MENU_SAVE_WITH_COMMENT, tab.id, info.selectionText || "").catch((error) =>
       console.error(error)
     );
     return;
   }
 
   if (info.menuItemId === MENU_SAVE_YOUTUBE_TRANSCRIPT) {
-    runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id).catch((error) => console.error(error));
+    queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id).catch((error) => console.error(error));
     return;
   }
 
   if (info.menuItemId === MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT) {
-    runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id).catch((error) =>
+    queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id).catch((error) =>
       console.error(error)
     );
     return;
@@ -1906,11 +2020,11 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 
   if (command === "save-selection") {
-    runAction(COMMAND_SAVE_SELECTION, tab.id).catch((error) => console.error(error));
+    queueCaptureAction(COMMAND_SAVE_SELECTION, tab.id).catch((error) => console.error(error));
     return;
   }
 
-  runAction(COMMAND_SAVE_SELECTION_WITH_COMMENT, tab.id).catch((error) => console.error(error));
+  queueCaptureAction(COMMAND_SAVE_SELECTION_WITH_COMMENT, tab.id).catch((error) => console.error(error));
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -2131,23 +2245,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         if (message.kind === "selection") {
-          return runAction("COMMAND_SAVE_SELECTION", tab.id);
+          return queueCaptureAction("COMMAND_SAVE_SELECTION", tab.id);
         }
 
         if (message.kind === "selection_with_comment") {
-          return runAction("COMMAND_SAVE_SELECTION_WITH_COMMENT", tab.id);
+          return queueCaptureAction("COMMAND_SAVE_SELECTION_WITH_COMMENT", tab.id);
         }
 
         if (message.kind === "selection_with_highlight") {
-          return runAction(INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT, tab.id);
+          return queueCaptureAction(INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT, tab.id);
         }
 
         if (message.kind === "youtube_transcript") {
-          return runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id);
+          return queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id);
         }
 
         if (message.kind === "youtube_transcript_with_comment") {
-          return runAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id);
+          return queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id);
         }
 
         throw new Error("Unknown capture type");

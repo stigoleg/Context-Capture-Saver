@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 
 import initSqlJs from "sql.js";
+import { SaveOperationQueue } from "../src/save-queue.js";
 
 import {
   buildJsonChunksForRecord,
@@ -597,4 +598,65 @@ test("buildJsonChunksForRecord returns document, note/highlight, and transcript 
     ),
     true
   );
+});
+
+test("SaveOperationQueue serializes rapid sqlite saves without corruption", async () => {
+  const db = new SQL.Database();
+  try {
+    ensureSchemaV2(db);
+    const queue = new SaveOperationQueue({ defaultTimeoutMs: 5000 });
+
+    const makeRecord = (index) => {
+      const text = `Document ${index} text with stable payload for queue integrity checks.`;
+      return {
+        id: `queue-capture-${index}`,
+        schemaVersion: "1.4.0",
+        captureType: "selected_text",
+        savedAt: `2026-02-21T18:${String(index).padStart(2, "0")}:00.000Z`,
+        source: {
+          url: `https://example.com/queue/${index}`,
+          title: `Queue ${index}`,
+          site: "example.com",
+          language: "en",
+          metadata: {}
+        },
+        content: {
+          documentText: text,
+          documentTextWordCount: text.split(/\s+/).length,
+          documentTextCharacterCount: text.length,
+          contentHash: `queue-hash-${index}`,
+          annotations: [
+            {
+              selectedText: "queue integrity",
+              comment: index % 2 === 0 ? null : `note-${index}`,
+              createdAt: `2026-02-21T18:${String(index).padStart(2, "0")}:30.000Z`
+            }
+          ],
+          transcriptText: null,
+          transcriptSegments: null
+        },
+        diagnostics: null
+      };
+    };
+
+    const rapidWrites = Array.from({ length: 12 }, (_, index) =>
+      queue.enqueue({
+        label: `sqlite-rapid-${index}`,
+        task: async () => saveRecordToDbV2(db, makeRecord(index), { ensureSchema: false, useTransaction: true })
+      })
+    );
+
+    await Promise.all(rapidWrites);
+
+    assert.equal(scalar(db, `SELECT COUNT(*) FROM captures;`), 12);
+    assert.equal(scalar(db, `SELECT COUNT(*) FROM documents;`), 12);
+    assert.equal(scalar(db, `SELECT COUNT(*) FROM chunks WHERE chunk_type = 'document';`), 12);
+    assert.equal(scalar(db, `SELECT COUNT(*) FROM chunks WHERE chunk_type IN ('highlight', 'note');`), 12);
+    assert.equal(
+      scalar(db, `SELECT COUNT(DISTINCT capture_id) FROM captures;`),
+      scalar(db, `SELECT COUNT(*) FROM captures;`)
+    );
+  } finally {
+    db.close();
+  }
 });
