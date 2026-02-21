@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": false,
+    "noImplicitReturns": true,
+    "useUnknownInCatchVariables": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "src/annotation-policy.js",
+    "src/bubble-settings.js",
+    "src/json-paths.js",
+    "src/runtime-capabilities.js",
+    "src/runtime-message-validation.js",
+    "src/storage-backend.js",
+    "src/url-helpers.js",
+    "src/write-retry.js"
+  ]
+}

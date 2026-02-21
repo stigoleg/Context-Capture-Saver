@@ -53,6 +53,8 @@ const captureQueue = new SaveOperationQueue({
 });
 const captureAbortControllersByTab = new Map();
 
+/** @typedef {"save-selection"|"save-with-comment"|"add-highlight"|"add-note"|"save-youtube-transcript"|"save-youtube-transcript-with-comment"|"COMMAND_SAVE_SELECTION"|"COMMAND_SAVE_SELECTION_WITH_COMMENT"|"INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT"} CaptureActionKind */
+
 function throwIfAborted(signal, fallbackMessage = "Capture cancelled") {
   if (!signal?.aborted) {
     return;
@@ -109,6 +111,11 @@ function cancelCaptureQueueForTab(tabId, reason = "Capture cancelled because the
   captureAbortControllersByTab.delete(tabId);
 }
 
+/**
+ * @param {CaptureActionKind} kind
+ * @param {number} tabId
+ * @param {string} [selectionOverride]
+ */
 function queueCaptureAction(kind, tabId, selectionOverride = "") {
   const controller = new AbortController();
   registerCaptureAbortController(tabId, controller);
@@ -1561,6 +1568,12 @@ async function handleYouTubeTranscriptSave(tabId, withComment = false, options =
   return { fileName, record: savedRecord };
 }
 
+/**
+ * @param {CaptureActionKind} kind
+ * @param {number} tabId
+ * @param {string} [selectionOverride]
+ * @param {{ signal?: AbortSignal }} [options]
+ */
 async function runAction(kind, tabId, selectionOverride = "", options = {}) {
   const signal = options.signal || null;
   let kindLabel = "selection";

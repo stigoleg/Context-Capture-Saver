@@ -227,6 +227,13 @@ Desired result: Stricter `checkJs` setup with documented type contracts across m
 - [ ] Track remaining typing debt.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `types: tighten checkjs contracts`.
+- [x] Increase strictness flags incrementally.
+- [x] Add JSDoc typedefs for records/messages/results.
+- [x] Resolve or explicitly suppress remaining strict errors.
+- [x] Gate stricter checks in CI.
+- [x] Track remaining typing debt.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `types: tighten checkjs contracts`.
 
 ## 16. Extend syntax checks to all runtime modules
 Description: Ensure all shipped source modules are included in static syntax checks.

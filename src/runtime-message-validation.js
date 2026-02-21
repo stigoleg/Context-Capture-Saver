@@ -20,6 +20,39 @@ const RUN_CAPTURE_KINDS = new Set([
   "youtube_transcript_with_comment"
 ]);
 
+/**
+ * @typedef {{
+ *   type: string;
+ *   url?: string;
+ *   allowClipboardCopy?: boolean;
+ *   selectedText?: string;
+ *   comment?: string | null;
+ *   annotationId?: string;
+ *   requestId?: string;
+ *   cancelled?: boolean;
+ *   kind?: string;
+ * }} RuntimeMessage
+ */
+
+/**
+ * @typedef {{
+ *   ok: boolean;
+ *   errorCode?: string;
+ *   error?: string;
+ *   message?: RuntimeMessage & {
+ *     type: string;
+ *     url: string;
+ *     allowClipboardCopy: boolean;
+ *     selectedText: string;
+ *     comment: string | null;
+ *     annotationId: string;
+ *     requestId: string;
+ *     cancelled: boolean;
+ *     kind: string;
+ *   };
+ * }} RuntimeMessageValidationResult
+ */
+
 function normalizeString(value, fallback = "") {
   if (value === undefined || value === null) {
     return fallback;
@@ -43,7 +76,12 @@ export function runtimeSuccess(payload = {}) {
   };
 }
 
+/**
+ * @param {unknown} message
+ * @returns {RuntimeMessageValidationResult}
+ */
 export function validateRuntimeMessage(message) {
+  const raw = /** @type {Record<string, any>} */ (message);
   if (!message || typeof message !== "object") {
     return {
       ok: false,
@@ -52,7 +90,7 @@ export function validateRuntimeMessage(message) {
     };
   }
 
-  const type = normalizeString(message.type, "").trim();
+  const type = normalizeString(raw.type, "").trim();
   if (!type) {
     return {
       ok: false,
@@ -69,7 +107,7 @@ export function validateRuntimeMessage(message) {
     };
   }
 
-  if ((type === "YT_FETCH_TEXT" || type === "YT_FETCH_JSON") && !normalizeString(message.url).trim()) {
+  if ((type === "YT_FETCH_TEXT" || type === "YT_FETCH_JSON") && !normalizeString(raw.url).trim()) {
     return {
       ok: false,
       errorCode: "invalid_url",
@@ -77,7 +115,7 @@ export function validateRuntimeMessage(message) {
     };
   }
 
-  if (type === "REMOVE_PENDING_NOTE" && !normalizeString(message.annotationId).trim()) {
+  if (type === "REMOVE_PENDING_NOTE" && !normalizeString(raw.annotationId).trim()) {
     return {
       ok: false,
       errorCode: "invalid_annotation_id",
@@ -85,7 +123,7 @@ export function validateRuntimeMessage(message) {
     };
   }
 
-  if (type === "COMMENT_SUBMIT" && !normalizeString(message.requestId).trim()) {
+  if (type === "COMMENT_SUBMIT" && !normalizeString(raw.requestId).trim()) {
     return {
       ok: false,
       errorCode: "invalid_request_id",
@@ -93,7 +131,7 @@ export function validateRuntimeMessage(message) {
     };
   }
 
-  if (type === "RUN_CAPTURE" && !RUN_CAPTURE_KINDS.has(normalizeString(message.kind).trim())) {
+  if (type === "RUN_CAPTURE" && !RUN_CAPTURE_KINDS.has(normalizeString(raw.kind).trim())) {
     return {
       ok: false,
       errorCode: "invalid_capture_kind",
@@ -106,17 +144,17 @@ export function validateRuntimeMessage(message) {
     message: {
       ...message,
       type,
-      url: normalizeString(message.url, ""),
-      allowClipboardCopy: message.allowClipboardCopy === true,
-      selectedText: normalizeString(message.selectedText, ""),
+      url: normalizeString(raw.url, ""),
+      allowClipboardCopy: raw.allowClipboardCopy === true,
+      selectedText: normalizeString(raw.selectedText, ""),
       comment:
-        message.comment === undefined || message.comment === null
+        raw.comment === undefined || raw.comment === null
           ? null
-          : normalizeString(message.comment, ""),
-      annotationId: normalizeString(message.annotationId, ""),
-      requestId: normalizeString(message.requestId, ""),
-      cancelled: message.cancelled === true,
-      kind: normalizeString(message.kind, "").trim()
+          : normalizeString(raw.comment, ""),
+      annotationId: normalizeString(raw.annotationId, ""),
+      requestId: normalizeString(raw.requestId, ""),
+      cancelled: raw.cancelled === true,
+      kind: normalizeString(raw.kind, "").trim()
     }
   };
 }

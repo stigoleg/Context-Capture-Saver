@@ -6,6 +6,7 @@
   "scripts": {
     "lint": "npm run check",
     "typecheck": "tsc --noEmit",
+    "typecheck:strict": "tsc -p tsconfig.strict.json --noEmit",
     "test": "node --test tests/*.test.js",
     "test:ci": "node --test tests/*.test.js",
     "check": "node --check src/background.js && node --check src/content.js && node --check src/options.js && node --check src/schema.js && node --check src/storage.js && node --check src/processing.js && node --check src/popup.js",
@@ -13,7 +14,7 @@
     "build:chrome": "node scripts/build.mjs --target=chrome",
     "build:firefox": "node scripts/build.mjs --target=firefox",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "verify": "npm run check && npm run typecheck && npm run test:ci && npm run build"
+    "verify": "npm run check && npm run typecheck && npm run typecheck:strict && npm run test:ci && npm run build"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
