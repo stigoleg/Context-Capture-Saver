@@ -41,6 +41,7 @@ export function buildCaptureRecord({ captureType, source, content, diagnostics =
       documentTextParts: content?.documentTextParts ?? null,
       documentTextCompressed: content?.documentTextCompressed ?? null,
       contentHash,
+      chunks: content?.chunks ?? null,
       annotations: content?.annotations ?? null,
       transcriptText: content?.transcriptText ?? null,
       transcriptSegments: content?.transcriptSegments ?? null

@@ -1,7 +1,7 @@
 import { applyContentPolicies } from "./processing.js";
 import { buildCaptureRecord, buildFileName, validateCaptureRecord } from "./schema.js";
 import { getLastCaptureStatus, getSettings, setLastCaptureStatus } from "./settings.js";
-import { saveRecordToSqlite } from "./sqlite.js";
+import { buildJsonChunksForRecord, saveRecordToSqlite } from "./sqlite.js";
 import {
   ensureReadWritePermission,
   getSavedDirectoryHandle,
@@ -23,6 +23,7 @@ const pendingAnnotationsByTab = new Map();
 const OFFSCREEN_URL = chrome.runtime.getURL("src/offscreen.html");
 const START_NOTIFICATION_ID = "capture-start";
 const ERROR_NOTIFICATION_ID = "capture-error";
+const JSON_OUTPUT_ROOT_DIR = "json";
 
 async function extractPdfFromModule(url, options = {}) {
   const module = await import("./pdf.js");
@@ -432,9 +433,66 @@ async function resolveSelection(tabId, selectionOverride = "", options = {}) {
 
 function addPendingAnnotation(tabId, annotation) {
   const existing = pendingAnnotationsByTab.get(tabId) || [];
-  existing.push(annotation);
+  const entry = {
+    id:
+      annotation?.id ||
+      (globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `annotation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`),
+    selectedText: annotation?.selectedText ?? "",
+    comment: annotation?.comment ?? null,
+    createdAt: annotation?.createdAt || new Date().toISOString()
+  };
+  existing.push(entry);
   pendingAnnotationsByTab.set(tabId, existing);
-  return existing.length;
+  return {
+    count: existing.length,
+    annotation: entry
+  };
+}
+
+function removePendingAnnotation(tabId, annotationId) {
+  const existing = pendingAnnotationsByTab.get(tabId) || [];
+  if (!annotationId) {
+    return {
+      count: existing.length,
+      removed: false
+    };
+  }
+
+  const next = existing.filter((annotation) => annotation?.id !== annotationId);
+  const removed = next.length !== existing.length;
+  if (next.length > 0) {
+    pendingAnnotationsByTab.set(tabId, next);
+  } else {
+    pendingAnnotationsByTab.delete(tabId);
+  }
+
+  return {
+    count: next.length,
+    removed
+  };
+}
+
+function clearPendingAnnotations(tabId) {
+  pendingAnnotationsByTab.delete(tabId);
+}
+
+function getPendingAnnotationsSnapshot(tabId) {
+  const existing = pendingAnnotationsByTab.get(tabId) || [];
+  return existing.map((annotation) => {
+    if (!annotation.id) {
+      annotation.id = globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `annotation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+    }
+    return {
+      id: annotation.id,
+      selectedText: annotation.selectedText ?? "",
+      comment: annotation.comment ?? null,
+      createdAt: annotation.createdAt || new Date().toISOString()
+    };
+  });
 }
 
 function takePendingAnnotations(tabId) {
@@ -702,11 +760,19 @@ function buildYouTubeTranscriptContent(capture, annotations, modeInput) {
 async function queueAnnotation(tabId, selectedText, comment) {
   const annotation = normalizeAnnotation(selectedText, comment);
   if (!annotation) {
-    return 0;
+    return {
+      count: 0,
+      annotation: null,
+      annotations: getPendingAnnotationsSnapshot(tabId)
+    };
   }
-  const count = addPendingAnnotation(tabId, annotation);
+  const added = addPendingAnnotation(tabId, annotation);
   await notifyNotesUpdated(tabId);
-  return count;
+  return {
+    count: added.count,
+    annotation: added.annotation,
+    annotations: getPendingAnnotationsSnapshot(tabId)
+  };
 }
 
 async function notifyInfo(tabId, title, message) {
@@ -734,9 +800,10 @@ async function notifyNotesUpdated(tabId) {
   if (!tabId) {
     return;
   }
-  const count = (pendingAnnotationsByTab.get(tabId) || []).length;
+  const annotations = getPendingAnnotationsSnapshot(tabId);
+  const count = annotations.length;
   await chrome.tabs
-    .sendMessage(tabId, { type: "NOTES_UPDATED", payload: { count } })
+    .sendMessage(tabId, { type: "NOTES_UPDATED", payload: { count, annotations } })
     .catch(() => undefined);
 }
 
@@ -761,12 +828,12 @@ async function handleAddHighlight(tabId, selectionOverride = "") {
     );
     return;
   }
-  const count = await queueAnnotation(tabId, normalizedSelection, "");
-  if (count > 0) {
+  const queued = await queueAnnotation(tabId, normalizedSelection, "");
+  if (queued.count > 0) {
     await notifyInfo(
       tabId,
       "Highlight added",
-      `${count} highlight${count === 1 ? "" : "s"} queued.`
+      `${queued.count} highlight${queued.count === 1 ? "" : "s"} queued.`
     );
   } else {
     await notifyInfo(
@@ -798,12 +865,12 @@ async function handleAddNote(tabId, selectionOverride = "") {
         );
         return;
       }
-      const count = await queueAnnotation(tabId, normalizedSelection, comment);
-      if (count > 0) {
+      const queued = await queueAnnotation(tabId, normalizedSelection, comment);
+      if (queued.count > 0) {
         await notifyInfo(
           tabId,
           "Highlight added",
-          `${count} highlight${count === 1 ? "" : "s"} queued.`
+          `${queued.count} highlight${queued.count === 1 ? "" : "s"} queued.`
         );
       } else {
         await notifyInfo(
@@ -833,12 +900,12 @@ async function handleAddNote(tabId, selectionOverride = "") {
     );
     return;
   }
-  const count = await queueAnnotation(tabId, normalizedSelection, capture.comment ?? "");
-  if (count > 0) {
+  const queued = await queueAnnotation(tabId, normalizedSelection, capture.comment ?? "");
+  if (queued.count > 0) {
     await notifyInfo(
       tabId,
       "Highlight added",
-      `${count} highlight${count === 1 ? "" : "s"} queued.`
+      `${queued.count} highlight${queued.count === 1 ? "" : "s"} queued.`
     );
   } else {
     await notifyInfo(tabId, "No selection", "Select text to add a highlight.");
@@ -940,7 +1007,7 @@ function formatDateFolder(isoString) {
 }
 
 function buildSubdirectories(record, settings) {
-  const segments = [];
+  const segments = [JSON_OUTPUT_ROOT_DIR];
   const typeSegment = settings.organizeByType
     ? slugifySegment(record.captureType || "capture") || "capture"
     : null;
@@ -972,6 +1039,10 @@ function formatStoredPath(fileName, subdirectories) {
   }
 
   return `${subdirectories.join("/")}/${fileName}`;
+}
+
+function errorMessage(error, fallback) {
+  return error?.message || fallback;
 }
 
 function normalizeWhitespace(value) {
@@ -1033,31 +1104,98 @@ async function saveRecord(record) {
     throw new Error("Folder permission denied. Re-select your folder in settings.");
   }
 
-  const processed = await applyContentPolicies(record, settings);
+  const storageBackend =
+    settings.storageBackend === "sqlite" || settings.storageBackend === "both"
+      ? settings.storageBackend
+      : "json";
+  const writesSqlite = storageBackend === "sqlite" || storageBackend === "both";
+  const writesJson = storageBackend === "json" || storageBackend === "both";
+
+  let processed = await applyContentPolicies(record, settings);
+  if (writesJson && settings.includeJsonChunks === true) {
+    processed = {
+      ...processed,
+      content: {
+        ...(processed.content || {}),
+        chunks: buildJsonChunksForRecord(processed)
+      }
+    };
+  }
+
   const validation = validateCaptureRecord(processed);
   if (!validation.valid) {
     throw new Error(`Schema validation failed: ${validation.errors.join(", ")}`);
   }
 
-  if (settings.storageBackend === "sqlite") {
+  let sqliteFileName = null;
+  let sqliteError = null;
+  if (writesSqlite) {
     try {
-      const dbFileName = await saveRecordToSqlite(directoryHandle, processed);
-      return { fileName: dbFileName, record: processed };
+      sqliteFileName = await saveRecordToSqlite(directoryHandle, processed);
     } catch (error) {
-      chrome.runtime.openOptionsPage();
-      throw error;
+      sqliteError = error;
     }
   }
 
-  const fileName = buildFileName(processed);
-  const subdirectories = buildSubdirectories(processed, settings);
-  try {
-    await writeJsonToDirectory(directoryHandle, fileName, processed, subdirectories);
-  } catch (error) {
-    chrome.runtime.openOptionsPage();
-    throw error;
+  let jsonStoredPath = null;
+  let jsonError = null;
+  if (writesJson) {
+    const fileName = buildFileName(processed);
+    const subdirectories = buildSubdirectories(processed, settings);
+    try {
+      await writeJsonToDirectory(directoryHandle, fileName, processed, subdirectories);
+      jsonStoredPath = formatStoredPath(fileName, subdirectories);
+    } catch (error) {
+      jsonError = error;
+    }
   }
-  return { fileName: formatStoredPath(fileName, subdirectories), record: processed };
+
+  if (writesJson && writesSqlite) {
+    if (sqliteError && jsonError) {
+      chrome.runtime.openOptionsPage();
+      throw new Error(
+        `Failed to write capture to JSON and SQLite: ` +
+          `json=${errorMessage(jsonError, "JSON write failed")}, ` +
+          `sqlite=${errorMessage(sqliteError, "SQLite write failed")}`
+      );
+    }
+    if (sqliteError && jsonStoredPath) {
+      return {
+        fileName: `${jsonStoredPath} | sqlite write failed: ${errorMessage(
+          sqliteError,
+          "SQLite write failed"
+        )}`,
+        record: processed
+      };
+    }
+    if (jsonError && sqliteFileName) {
+      return {
+        fileName: `${sqliteFileName} | json write failed: ${errorMessage(
+          jsonError,
+          "JSON write failed"
+        )}`,
+        record: processed
+      };
+    }
+    return {
+      fileName: `${jsonStoredPath} | ${sqliteFileName}`,
+      record: processed
+    };
+  }
+
+  if (writesSqlite && sqliteError) {
+    chrome.runtime.openOptionsPage();
+    throw sqliteError;
+  }
+  if (writesJson && jsonError) {
+    chrome.runtime.openOptionsPage();
+    throw jsonError;
+  }
+
+  return {
+    fileName: writesJson ? jsonStoredPath : sqliteFileName,
+    record: processed
+  };
 }
 
 async function assertFolderAccess() {
@@ -1887,18 +2025,74 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     queueAnnotation(tabId, message.selectedText ?? "", message.comment ?? "")
-      .then((count) => {
-        if (!count) {
+      .then((result) => {
+        if (!result.count) {
           sendResponse({ ok: false, error: "No selection to add." });
           return;
         }
-        sendResponse({ ok: true, count });
+        sendResponse({
+          ok: true,
+          count: result.count,
+          annotation: result.annotation,
+          annotations: result.annotations
+        });
       })
       .catch((error) =>
         sendResponse({ ok: false, error: error?.message || "Failed to add note" })
       );
     return true;
   }
+
+  if (message?.type === "GET_PENDING_NOTES") {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "No active tab" });
+      return true;
+    }
+    const annotations = getPendingAnnotationsSnapshot(tabId);
+    sendResponse({ ok: true, count: annotations.length, annotations });
+    return true;
+  }
+
+  if (message?.type === "REMOVE_PENDING_NOTE") {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "No active tab" });
+      return true;
+    }
+
+    const result = removePendingAnnotation(tabId, message.annotationId || null);
+    notifyNotesUpdated(tabId)
+      .then(() => {
+        const annotations = getPendingAnnotationsSnapshot(tabId);
+        sendResponse({
+          ok: true,
+          removed: result.removed,
+          count: annotations.length,
+          annotations
+        });
+      })
+      .catch((error) =>
+        sendResponse({ ok: false, error: error?.message || "Failed to remove note" })
+      );
+    return true;
+  }
+
+  if (message?.type === "CLEAR_PENDING_NOTES_STATE") {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "No active tab" });
+      return true;
+    }
+    clearPendingAnnotations(tabId);
+    notifyNotesUpdated(tabId)
+      .then(() => sendResponse({ ok: true, count: 0, annotations: [] }))
+      .catch((error) =>
+        sendResponse({ ok: false, error: error?.message || "Failed to clear notes" })
+      );
+    return true;
+  }
+
   if (message?.type === "COMMENT_SUBMIT") {
     const requestId = message.requestId;
     const entry = commentRequests.get(requestId);

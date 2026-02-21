@@ -1,10 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -15,6 +13,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -28,13 +28,21 @@ jobs:
       - name: Verify and build
         run: npm run verify
 
-      - name: Create checksum
-        run: sha256sum dist/context-capture-saver.zip > dist/context-capture-saver.zip.sha256
+      - name: Create checksums
+        run: |
+          sha256sum dist/context-capture-saver-chrome.zip > dist/context-capture-saver-chrome.zip.sha256
+          sha256sum dist/context-capture-saver-firefox.zip > dist/context-capture-saver-firefox.zip.sha256
+          sha256sum dist/context-capture-saver.zip > dist/context-capture-saver.zip.sha256
 
-      - name: Create GitHub release
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name }}
           generate_release_notes: true
           files: |
+            dist/context-capture-saver-chrome.zip
+            dist/context-capture-saver-firefox.zip
+            dist/context-capture-saver-chrome.zip.sha256
+            dist/context-capture-saver-firefox.zip.sha256
             dist/context-capture-saver.zip
             dist/context-capture-saver.zip.sha256

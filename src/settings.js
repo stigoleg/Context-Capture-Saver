@@ -22,11 +22,13 @@ export const DEFAULT_BUBBLE_MENU_ENABLED = [
 
 export const BUBBLE_MENU_STYLES = ["glass", "clean", "midnight"];
 export const BUBBLE_MENU_LAYOUTS = ["horizontal", "vertical"];
+export const STORAGE_BACKENDS = ["json", "sqlite", "both"];
 
 export const DEFAULT_SETTINGS = {
   maxDocumentChars: 0,
   compressLargeText: false,
   compressionThresholdChars: 75000,
+  includeJsonChunks: false,
   includeDiagnostics: false,
   storageBackend: "json",
   youtubeTranscriptStorageMode: "document_text",
@@ -81,6 +83,9 @@ function normalizeSettings(input) {
     ...DEFAULT_SETTINGS,
     ...(input || {})
   };
+  const storageBackend = STORAGE_BACKENDS.includes(merged.storageBackend)
+    ? merged.storageBackend
+    : DEFAULT_SETTINGS.storageBackend;
   const bubble = normalizeBubbleSettings(merged);
   const bubbleMenuLayout = BUBBLE_MENU_LAYOUTS.includes(merged.bubbleMenuLayout)
     ? merged.bubbleMenuLayout
@@ -90,6 +95,8 @@ function normalizeSettings(input) {
     : DEFAULT_SETTINGS.bubbleMenuStyle;
   return {
     ...merged,
+    storageBackend,
+    includeJsonChunks: merged.includeJsonChunks === true,
     includeDiagnostics: merged.includeDiagnostics === true,
     bubbleMenuLayout,
     bubbleMenuStyle,

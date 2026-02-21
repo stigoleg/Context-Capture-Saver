@@ -3,6 +3,23 @@ const DB_VERSION = 1;
 const STORE_NAME = "handles";
 const DIRECTORY_KEY = "capture-directory";
 
+function closeDbSafely(db) {
+  try {
+    db?.close();
+  } catch (_error) {
+    // Ignore close errors; IndexedDB connection cleanup is best effort.
+  }
+}
+
+function buildWriteCloseError(target, writeError, closeError) {
+  const writeMessage = writeError?.message || "write failed";
+  const closeMessage = closeError?.message || "close failed";
+  return new Error(
+    `Failed while writing ${target}: ${writeMessage}. ` +
+      `Also failed to close stream: ${closeMessage}.`
+  );
+}
+
 function openDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -25,8 +42,18 @@ async function idbGet(key) {
     const tx = db.transaction(STORE_NAME, "readonly");
     const store = tx.objectStore(STORE_NAME);
     const request = store.get(key);
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => reject(request.error);
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      closeDbSafely(db);
+      callback(value);
+    };
+    request.onsuccess = () => finish(resolve, request.result || null);
+    request.onerror = () => finish(reject, request.error);
+    tx.onabort = () => finish(reject, tx.error || new Error("IndexedDB read transaction aborted"));
   });
 }
 
@@ -36,8 +63,19 @@ async function idbSet(key, value) {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
     const request = store.put(value, key);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    let settled = false;
+    const finish = (callback, payload) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      closeDbSafely(db);
+      callback(payload);
+    };
+    request.onerror = () => finish(reject, request.error);
+    tx.oncomplete = () => finish(resolve);
+    tx.onabort = () => finish(reject, tx.error || new Error("IndexedDB write transaction aborted"));
+    tx.onerror = () => finish(reject, tx.error || new Error("IndexedDB write transaction failed"));
   });
 }
 
@@ -47,8 +85,19 @@ async function idbDelete(key) {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
     const request = store.delete(key);
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    let settled = false;
+    const finish = (callback, payload) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      closeDbSafely(db);
+      callback(payload);
+    };
+    request.onerror = () => finish(reject, request.error);
+    tx.oncomplete = () => finish(resolve);
+    tx.onabort = () => finish(reject, tx.error || new Error("IndexedDB delete transaction aborted"));
+    tx.onerror = () => finish(reject, tx.error || new Error("IndexedDB delete transaction failed"));
   });
 }
 
@@ -99,6 +148,22 @@ export async function writeJsonToDirectory(handle, fileName, payload, subdirecto
   const targetHandle = await getNestedDirectoryHandle(handle, subdirectories);
   const fileHandle = await targetHandle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
-  await writable.write(`${JSON.stringify(payload, null, 2)}\n`);
-  await writable.close();
+  let writeError = null;
+  try {
+    await writable.write(`${JSON.stringify(payload, null, 2)}\n`);
+  } catch (error) {
+    writeError = error;
+  } finally {
+    try {
+      await writable.close();
+    } catch (closeError) {
+      if (writeError) {
+        throw buildWriteCloseError(fileName, writeError, closeError);
+      }
+      throw closeError;
+    }
+  }
+  if (writeError) {
+    throw writeError;
+  }
 }

@@ -1098,8 +1098,13 @@ const COMMENT_STYLE_ID = "ccs-comment-style";
 const COMMENT_OVERLAY_ID = "ccs-comment-overlay";
 const NOTES_PANEL_ID = "ccs-notes-panel";
 const NOTES_COUNT_ID = "ccs-notes-count";
+const NOTES_LIST_ID = "ccs-notes-list";
 const SELECTION_BUBBLE_ID = "ccs-selection-bubble";
 const CAPTURE_SETTINGS_KEY = "captureSettings";
+
+const supportsCssHighlights = typeof globalThis.Highlight === "function" && Boolean(globalThis.CSS?.highlights);
+const pendingAnnotationPreviews = new Map();
+const pendingAnnotationSnapshot = new Map();
 
 const DEFAULT_BUBBLE_MENU_ORDER = [
   "save_content",
@@ -1141,6 +1146,19 @@ const BUBBLE_ACTION_META = {
     variant: "secondary"
   }
 };
+
+const YOUTUBE_BUBBLE_ACTIONS = [
+  {
+    key: "save_youtube_transcript",
+    label: "Save YouTube transcript",
+    variant: "primary"
+  },
+  {
+    key: "save_youtube_transcript_with_note",
+    label: "Save transcript with a note",
+    variant: "secondary"
+  }
+];
 
 const bubbleMenuConfig = {
   order: [...DEFAULT_BUBBLE_MENU_ORDER],
@@ -1494,11 +1512,76 @@ function ensureCommentStyles() {
       font: 13px/1.4 "Segoe UI", Arial, sans-serif;
       box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
       z-index: 2147483646;
+      width: min(360px, calc(100vw - 28px));
+      max-height: min(60vh, 480px);
     }
 
     .ccs-notes-panel__count {
       font-weight: 700;
       font-size: 13px;
+    }
+
+    .ccs-notes-panel__list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 6px;
+      max-height: min(34vh, 280px);
+      overflow: auto;
+    }
+
+    .ccs-notes-panel__item {
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 10px;
+      padding: 8px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .ccs-notes-panel__item-text {
+      color: #e2e8f0;
+      font-size: 12px;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .ccs-notes-panel__item-comment {
+      color: #bae6fd;
+      font-size: 12px;
+      white-space: normal;
+      word-break: break-word;
+    }
+
+    .ccs-notes-panel__item-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ccs-notes-panel__item-kind {
+      font-size: 11px;
+      color: #cbd5e1;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .ccs-notes-panel__remove {
+      border: 1px solid rgba(248, 113, 113, 0.5);
+      background: rgba(127, 29, 29, 0.2);
+      color: #fecaca;
+      border-radius: 8px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .ccs-notes-panel__remove:hover {
+      background: rgba(127, 29, 29, 0.36);
     }
 
     .ccs-notes-panel__actions {
@@ -1517,6 +1600,21 @@ function ensureCommentStyles() {
     .ccs-notes-panel__actions .primary {
       background: #38bdf8;
       color: #0f172a;
+    }
+
+    .ccs-notes-panel__actions .ghost {
+      background: rgba(148, 163, 184, 0.2);
+      color: #f8fafc;
+    }
+
+    ::highlight(ccs-pending-highlight) {
+      background: rgba(251, 191, 36, 0.42);
+      color: inherit;
+    }
+
+    ::highlight(ccs-pending-note) {
+      background: rgba(250, 204, 21, 0.48);
+      color: inherit;
     }
 
     .ccs-selection-bubble {
@@ -1661,6 +1759,265 @@ function ensureCommentStyles() {
   document.head?.appendChild(style);
 }
 
+function truncatePreviewText(value, maxLength = 180) {
+  const text = normalizeText(value || "");
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1)}…`;
+}
+
+function buildNodePath(node) {
+  const parts = [];
+  let current = node;
+  while (current && current !== document.body) {
+    const parent = current.parentNode;
+    if (!parent) {
+      break;
+    }
+    const index = Array.prototype.indexOf.call(parent.childNodes, current);
+    parts.push(index);
+    current = parent;
+  }
+  return parts.reverse().join(".");
+}
+
+function buildRangeKey(range) {
+  if (!range) {
+    return null;
+  }
+  return [
+    buildNodePath(range.startContainer),
+    range.startOffset,
+    buildNodePath(range.endContainer),
+    range.endOffset
+  ].join(":");
+}
+
+function mapCollapsedIndexToRawIndex(raw, targetIndex) {
+  let rawIndex = 0;
+  let collapsedIndex = 0;
+  let previousWasWhitespace = false;
+  while (rawIndex < raw.length && collapsedIndex < targetIndex) {
+    const char = raw[rawIndex];
+    const isWhitespace = /\s/.test(char);
+    if (isWhitespace) {
+      if (!previousWasWhitespace) {
+        collapsedIndex += 1;
+      }
+      previousWasWhitespace = true;
+    } else {
+      collapsedIndex += 1;
+      previousWasWhitespace = false;
+    }
+    rawIndex += 1;
+  }
+  return Math.max(0, Math.min(rawIndex, raw.length));
+}
+
+function isRenderableTextNode(node) {
+  if (!node || node.nodeType !== Node.TEXT_NODE) {
+    return false;
+  }
+  const text = node.textContent || "";
+  if (!text.trim()) {
+    return false;
+  }
+  const parent = node.parentElement;
+  if (!parent) {
+    return false;
+  }
+  if (parent.closest(`#${COMMENT_OVERLAY_ID}, #${NOTES_PANEL_ID}, #${SELECTION_BUBBLE_ID}`)) {
+    return false;
+  }
+  const tagName = parent.tagName.toUpperCase();
+  if (tagName === "SCRIPT" || tagName === "STYLE" || tagName === "NOSCRIPT") {
+    return false;
+  }
+  if (tagName === "TEXTAREA" || tagName === "INPUT" || tagName === "OPTION") {
+    return false;
+  }
+  return true;
+}
+
+function createRangeFromNodeOffsets(node, startOffset, endOffset) {
+  if (!node || node.nodeType !== Node.TEXT_NODE) {
+    return null;
+  }
+  const textLength = (node.textContent || "").length;
+  const safeStart = Math.max(0, Math.min(startOffset, textLength));
+  const safeEnd = Math.max(safeStart, Math.min(endOffset, textLength));
+  if (safeEnd <= safeStart) {
+    return null;
+  }
+  const range = document.createRange();
+  range.setStart(node, safeStart);
+  range.setEnd(node, safeEnd);
+  return range;
+}
+
+function findAnnotationPreviewRange(annotation, usedRangeKeys = new Set()) {
+  const selectedText = normalizeText(annotation?.selectedText || "");
+  if (!selectedText) {
+    return null;
+  }
+
+  const selectedTextLower = selectedText.toLowerCase();
+  const fallbackToken = selectedText
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 5)
+    .sort((left, right) => right.length - left.length)[0] || "";
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (isRenderableTextNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP)
+  });
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const raw = node.textContent || "";
+    let range = null;
+
+    let directIndex = raw.indexOf(selectedText);
+    if (directIndex < 0) {
+      directIndex = raw.toLowerCase().indexOf(selectedTextLower);
+    }
+    if (directIndex >= 0) {
+      range = createRangeFromNodeOffsets(node, directIndex, directIndex + selectedText.length);
+    }
+
+    if (!range) {
+      const collapsed = raw.replace(/\s+/g, " ");
+      const collapsedLower = collapsed.toLowerCase();
+      const collapsedIndex = collapsedLower.indexOf(selectedTextLower);
+      if (collapsedIndex >= 0) {
+        const rawStart = mapCollapsedIndexToRawIndex(raw, collapsedIndex);
+        const rawEnd = mapCollapsedIndexToRawIndex(raw, collapsedIndex + selectedText.length);
+        range = createRangeFromNodeOffsets(node, rawStart, rawEnd);
+      }
+    }
+
+    if (!range && fallbackToken) {
+      const tokenIndex = raw.toLowerCase().indexOf(fallbackToken.toLowerCase());
+      if (tokenIndex >= 0) {
+        range = createRangeFromNodeOffsets(node, tokenIndex, tokenIndex + fallbackToken.length);
+      }
+    }
+
+    if (!range) {
+      continue;
+    }
+    const rangeKey = buildRangeKey(range);
+    if (!rangeKey || usedRangeKeys.has(rangeKey)) {
+      continue;
+    }
+    return {
+      range,
+      rangeKey
+    };
+  }
+  return null;
+}
+
+function refreshPendingAnnotationHighlights() {
+  if (!supportsCssHighlights) {
+    return;
+  }
+
+  const highlights = new globalThis.Highlight();
+  const noteHighlights = new globalThis.Highlight();
+
+  for (const preview of pendingAnnotationPreviews.values()) {
+    if (!preview?.range) {
+      continue;
+    }
+    if (preview.comment) {
+      noteHighlights.add(preview.range);
+    } else {
+      highlights.add(preview.range);
+    }
+  }
+
+  if (highlights.size > 0) {
+    globalThis.CSS.highlights.set("ccs-pending-highlight", highlights);
+  } else {
+    globalThis.CSS.highlights.delete("ccs-pending-highlight");
+  }
+
+  if (noteHighlights.size > 0) {
+    globalThis.CSS.highlights.set("ccs-pending-note", noteHighlights);
+  } else {
+    globalThis.CSS.highlights.delete("ccs-pending-note");
+  }
+}
+
+function clearPendingAnnotationHighlights() {
+  pendingAnnotationSnapshot.clear();
+  pendingAnnotationPreviews.clear();
+  if (!supportsCssHighlights) {
+    return;
+  }
+  globalThis.CSS.highlights.delete("ccs-pending-highlight");
+  globalThis.CSS.highlights.delete("ccs-pending-note");
+}
+
+function syncPendingAnnotationPreviews(annotations = []) {
+  const normalized = Array.isArray(annotations)
+    ? annotations
+        .map((annotation) => ({
+          id: String(annotation?.id || "").trim(),
+          selectedText: annotation?.selectedText || "",
+          comment: annotation?.comment ?? null,
+          createdAt: annotation?.createdAt || new Date().toISOString()
+        }))
+        .filter((annotation) => annotation.id)
+    : [];
+
+  const nextIds = new Set(normalized.map((annotation) => annotation.id));
+  for (const existingId of [...pendingAnnotationSnapshot.keys()]) {
+    if (!nextIds.has(existingId)) {
+      pendingAnnotationSnapshot.delete(existingId);
+      pendingAnnotationPreviews.delete(existingId);
+    }
+  }
+
+  for (const annotation of normalized) {
+    pendingAnnotationSnapshot.set(annotation.id, annotation);
+  }
+
+  const usedRangeKeys = new Set(
+    [...pendingAnnotationPreviews.values()].map((preview) => preview?.rangeKey).filter(Boolean)
+  );
+  for (const annotation of normalized) {
+    const current = pendingAnnotationPreviews.get(annotation.id);
+    if (current && current.selectedText === annotation.selectedText) {
+      current.comment = annotation.comment ?? null;
+      continue;
+    }
+    if (current?.rangeKey) {
+      usedRangeKeys.delete(current.rangeKey);
+    }
+    const nextRange = findAnnotationPreviewRange(annotation, usedRangeKeys);
+    if (!nextRange) {
+      pendingAnnotationPreviews.delete(annotation.id);
+      continue;
+    }
+    usedRangeKeys.add(nextRange.rangeKey);
+    pendingAnnotationPreviews.set(annotation.id, {
+      range: nextRange.range,
+      rangeKey: nextRange.rangeKey,
+      selectedText: annotation.selectedText,
+      comment: annotation.comment ?? null
+    });
+  }
+
+  refreshPendingAnnotationHighlights();
+  return normalized;
+}
+
 function ensureNotesPanel() {
   let panel = document.getElementById(NOTES_PANEL_ID);
   if (panel) {
@@ -1677,6 +2034,10 @@ function ensureNotesPanel() {
   count.id = NOTES_COUNT_ID;
   count.className = "ccs-notes-panel__count";
   count.textContent = "Highlights ready";
+
+  const list = document.createElement("ul");
+  list.id = NOTES_LIST_ID;
+  list.className = "ccs-notes-panel__list";
 
   const actions = document.createElement("div");
   actions.className = "ccs-notes-panel__actions";
@@ -1702,20 +2063,102 @@ function ensureNotesPanel() {
     }
   });
 
-  actions.append(saveButton);
-  panel.append(count, actions);
+  const clearButton = document.createElement("button");
+  clearButton.className = "ghost";
+  clearButton.type = "button";
+  clearButton.textContent = "Clear all";
+  clearButton.addEventListener("click", async () => {
+    clearButton.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "CLEAR_PENDING_NOTES_STATE" });
+      if (!response?.ok) {
+        showErrorToast(response?.error || "Failed to clear highlights");
+      }
+      syncPendingAnnotations(response?.annotations || []);
+    } catch (error) {
+      showErrorToast(error?.message || "Failed to clear highlights");
+    } finally {
+      clearButton.disabled = false;
+    }
+  });
+
+  actions.append(saveButton, clearButton);
+  panel.append(count, list, actions);
   document.body?.appendChild(panel);
   return panel;
 }
 
-function updateNotesPanel(count) {
-  if (!count || count <= 0) {
+function renderNotesList(annotations = []) {
+  const list = /** @type {HTMLUListElement|null} */ (document.getElementById(NOTES_LIST_ID));
+  if (!list) {
+    return;
+  }
+  list.textContent = "";
+  for (const annotation of annotations) {
+    const item = document.createElement("li");
+    item.className = "ccs-notes-panel__item";
+
+    const selectedText = truncatePreviewText(annotation.selectedText || "");
+    const commentText = truncatePreviewText(annotation.comment || "", 140);
+
+    const textEl = document.createElement("div");
+    textEl.className = "ccs-notes-panel__item-text";
+    textEl.textContent = selectedText || "(Note without selection)";
+
+    const kindEl = document.createElement("span");
+    kindEl.className = "ccs-notes-panel__item-kind";
+    kindEl.textContent = annotation.comment ? "Note" : "Highlight";
+
+    const meta = document.createElement("div");
+    meta.className = "ccs-notes-panel__item-meta";
+    meta.appendChild(kindEl);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "ccs-notes-panel__remove";
+    removeButton.textContent = "Delete";
+    removeButton.addEventListener("click", async () => {
+      removeButton.disabled = true;
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: "REMOVE_PENDING_NOTE",
+          annotationId: annotation.id
+        });
+        if (!response?.ok) {
+          showErrorToast(response?.error || "Failed to remove highlight");
+          return;
+        }
+        syncPendingAnnotations(response.annotations || []);
+      } catch (error) {
+        showErrorToast(error?.message || "Failed to remove highlight");
+      } finally {
+        removeButton.disabled = false;
+      }
+    });
+    meta.appendChild(removeButton);
+
+    item.append(textEl);
+    if (commentText) {
+      const commentEl = document.createElement("div");
+      commentEl.className = "ccs-notes-panel__item-comment";
+      commentEl.textContent = `Note: ${commentText}`;
+      item.append(commentEl);
+    }
+    item.append(meta);
+    list.appendChild(item);
+  }
+}
+
+function updateNotesPanel(annotations = []) {
+  const count = Array.isArray(annotations) ? annotations.length : 0;
+  if (count <= 0) {
     const panel = document.getElementById(NOTES_PANEL_ID);
     panel?.remove();
     return;
   }
 
   const panel = ensureNotesPanel();
+  renderNotesList(annotations);
   const countEl = document.getElementById(NOTES_COUNT_ID);
   if (countEl) {
     countEl.textContent = `${count} highlight${count === 1 ? "" : "s"} ready`;
@@ -1723,9 +2166,31 @@ function updateNotesPanel(count) {
   panel.style.display = "grid";
 }
 
+function syncPendingAnnotations(annotations = []) {
+  const normalized = syncPendingAnnotationPreviews(annotations);
+  updateNotesPanel(normalized);
+}
+
 function clearNotesPanel() {
+  clearPendingAnnotationHighlights();
   const panel = document.getElementById(NOTES_PANEL_ID);
   panel?.remove();
+}
+
+async function hydratePendingNotes() {
+  if (isYouTubePage()) {
+    clearNotesPanel();
+    return;
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "GET_PENDING_NOTES" });
+    if (!response?.ok) {
+      return;
+    }
+    syncPendingAnnotations(response.annotations || []);
+  } catch (_error) {
+    // Ignore bootstrap errors when the background worker is unavailable.
+  }
 }
 
 async function resolveBubbleSelectionText(bubble, allowPdfClipboardCopy = true) {
@@ -1808,6 +2273,40 @@ async function runBubbleAction(actionKey, bubble) {
     return;
   }
 
+  if (actionKey === "save_youtube_transcript") {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "RUN_CAPTURE",
+        kind: "youtube_transcript"
+      });
+      if (!response?.ok) {
+        showErrorToast(response?.error || "Capture failed");
+      }
+    } catch (error) {
+      showErrorToast(error?.message || "Capture failed");
+    } finally {
+      closeBubble();
+    }
+    return;
+  }
+
+  if (actionKey === "save_youtube_transcript_with_note") {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "RUN_CAPTURE",
+        kind: "youtube_transcript_with_comment"
+      });
+      if (!response?.ok) {
+        showErrorToast(response?.error || "Capture failed");
+      }
+    } catch (error) {
+      showErrorToast(error?.message || "Capture failed");
+    } finally {
+      closeBubble();
+    }
+    return;
+  }
+
   const text = await resolveBubbleSelectionText(bubble, true);
   if (!text.trim()) {
     showErrorToast("Select text first.");
@@ -1823,7 +2322,7 @@ async function runBubbleAction(actionKey, bubble) {
         comment: null
       });
       if (response?.ok) {
-        updateNotesPanel(response.count || 0);
+        syncPendingAnnotations(response.annotations || []);
         showInfoToast({ title: "Highlight added", detail: "Selection queued for saving." });
       } else {
         showErrorToast(response?.error || "Failed to add highlight");
@@ -1850,7 +2349,7 @@ async function runBubbleAction(actionKey, bubble) {
         comment
       });
       if (response?.ok) {
-        updateNotesPanel(response.count || 0);
+        syncPendingAnnotations(response.annotations || []);
         showInfoToast({ title: "Highlight added", detail: "Note queued for saving." });
       } else {
         showErrorToast(response?.error || "Failed to add highlight");
@@ -1863,16 +2362,51 @@ async function runBubbleAction(actionKey, bubble) {
   }
 }
 
-function ensureSelectionBubble() {
+function buildDefaultBubbleActions() {
+  const orderedEnabledActions = bubbleMenuConfig.order.filter((action) =>
+    bubbleMenuConfig.enabled.includes(action)
+  );
+  const actionKeys = orderedEnabledActions.length
+    ? orderedEnabledActions
+    : ["save_content", "highlight", "highlight_with_note"];
+
+  return actionKeys
+    .map((actionKey, index) => {
+      const meta = BUBBLE_ACTION_META[actionKey];
+      if (!meta) {
+        return null;
+      }
+      return {
+        key: actionKey,
+        label: meta.label,
+        variant: index === 0 ? "primary" : meta.variant
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildBubbleActionsForMode(mode) {
+  if (mode === "youtube") {
+    return YOUTUBE_BUBBLE_ACTIONS;
+  }
+  return buildDefaultBubbleActions();
+}
+
+function ensureSelectionBubble(mode = "default") {
   let bubble = document.getElementById(SELECTION_BUBBLE_ID);
-  if (bubble) {
+  if (bubble && (bubble.dataset.mode || "default") === mode) {
     return bubble;
+  }
+  if (bubble) {
+    bubble.remove();
+    bubble = null;
   }
 
   ensureCommentStyles();
 
   bubble = document.createElement("div");
   bubble.id = SELECTION_BUBBLE_ID;
+  bubble.dataset.mode = mode;
   const bubbleLayout = BUBBLE_MENU_LAYOUTS.includes(bubbleMenuConfig.layout)
     ? bubbleMenuConfig.layout
     : DEFAULT_BUBBLE_MENU_LAYOUT;
@@ -1885,28 +2419,19 @@ function ensureSelectionBubble() {
     event.preventDefault();
   });
 
-  const orderedEnabledActions = bubbleMenuConfig.order.filter((action) =>
-    bubbleMenuConfig.enabled.includes(action)
-  );
-  const actions = orderedEnabledActions.length
-    ? orderedEnabledActions
-    : ["save_content", "highlight", "highlight_with_note"];
+  const actions = buildBubbleActionsForMode(mode);
 
   const actionsWrap = document.createElement("div");
   actionsWrap.className = "ccs-selection-bubble__actions";
 
-  actions.forEach((actionKey, index) => {
-    const meta = BUBBLE_ACTION_META[actionKey];
-    if (!meta) {
-      return;
-    }
+  actions.forEach((action, index) => {
     const button = document.createElement("button");
     button.type = "button";
-    const variant = index === 0 ? "primary" : meta.variant;
+    const variant = action.variant || (index === 0 ? "primary" : "secondary");
     button.className = `ccs-selection-bubble__action ccs-selection-bubble__action--${variant}`;
-    button.textContent = meta.label;
+    button.textContent = action.label;
     button.addEventListener("click", () => {
-      void runBubbleAction(actionKey, bubble);
+      void runBubbleAction(action.key, bubble);
     });
     actionsWrap.appendChild(button);
   });
@@ -1986,7 +2511,7 @@ function clearPdfEmptyBubbleTimer() {
 }
 
 function showPdfSelectionBubble(selectionText = "", options = {}) {
-  const bubble = ensureSelectionBubble();
+  const bubble = ensureSelectionBubble("default");
   const normalized = normalizeText(selectionText || "");
   bubble.dataset.selectionText = normalized;
   positionPdfBubble(bubble);
@@ -2119,11 +2644,6 @@ function isEditableFieldSelection(selection) {
 }
 
 function scheduleSelectionBubbleUpdate() {
-  if (isYouTubePage()) {
-    hideSelectionBubble();
-    stopPdfSelectionPoller();
-    return;
-  }
   if (selectionBubbleTimer) {
     window.clearTimeout(selectionBubbleTimer);
   }
@@ -2183,7 +2703,8 @@ function scheduleSelectionBubbleUpdate() {
       return;
     }
 
-    const bubble = ensureSelectionBubble();
+    const bubbleMode = isYouTubePage() ? "youtube" : "default";
+    const bubble = ensureSelectionBubble(bubbleMode);
     bubble.dataset.selectionText = text;
     const anchorX = Math.min(Math.max(rect.left + rect.width / 2, 16), window.innerWidth - 16);
     const anchorTop = Math.max(rect.top, 8);
@@ -3451,7 +3972,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: true });
       return;
     }
-    updateNotesPanel(Number(message.payload?.count || 0));
+    syncPendingAnnotations(Array.isArray(message.payload?.annotations) ? message.payload.annotations : []);
     sendResponse({ ok: true });
     return;
   }
@@ -3464,3 +3985,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   sendResponse({ ok: false, error: "Unknown message type" });
 });
+
+hydratePendingNotes().catch(() => undefined);

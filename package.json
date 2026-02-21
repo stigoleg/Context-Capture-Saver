@@ -1,6 +1,6 @@
 {
   "name": "context-capture-saver",
-  "version": "1.2.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,9 @@
     "test": "node --test tests/*.test.js",
     "test:ci": "node --test tests/*.test.js",
     "check": "node --check src/background.js && node --check src/content.js && node --check src/options.js && node --check src/schema.js && node --check src/storage.js && node --check src/processing.js && node --check src/popup.js",
-    "build": "rm -rf dist && mkdir -p dist && cp -R manifest.json src README.md package.json package-lock.json dist/ && cd dist && zip -r context-capture-saver.zip . -x context-capture-saver.zip",
+    "build": "node scripts/build.mjs --target=all",
+    "build:chrome": "node scripts/build.mjs --target=chrome",
+    "build:firefox": "node scripts/build.mjs --target=firefox",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "verify": "npm run check && npm run typecheck && npm run test:ci && npm run build"
   },

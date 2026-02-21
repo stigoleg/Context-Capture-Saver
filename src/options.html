@@ -43,8 +43,13 @@
           <span>SQLite database (<code>context-captures.sqlite</code>)</span>
         </label>
 
+        <label class="field checkbox">
+          <input id="storageBackendBoth" type="radio" name="storageBackend" value="both" />
+          <span>JSON + SQLite (write both)</span>
+        </label>
+
         <section id="folderOrganizationSection" class="sub-card" hidden>
-          <h3>Folder Organization (JSON only)</h3>
+          <h3>Folder Organization (JSON output)</h3>
 
           <label class="field checkbox">
             <input id="organizeByDateInput" type="checkbox" />
@@ -65,7 +70,7 @@
           </label>
         </section>
         <section id="largeContentSection" class="sub-card" hidden>
-          <h3>Large Content Handling (JSON only)</h3>
+          <h3>Large Content Handling (JSON output)</h3>
           <p class="section-copy">Compression reduces file size for long captures.</p>
 
           <label class="field checkbox">
@@ -76,6 +81,11 @@
           <label class="field">
             <span>Compression threshold characters</span>
             <input id="compressionThresholdInput" type="number" min="1000" step="1000" />
+          </label>
+
+          <label class="field checkbox">
+            <input id="includeJsonChunksInput" type="checkbox" />
+            <span>Include structured chunks in JSON output (document, highlights, notes, transcript)</span>
           </label>
         </section>
 

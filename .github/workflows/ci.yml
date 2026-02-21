@@ -34,19 +34,8 @@ jobs:
       - name: Tests
         run: npm run test:ci
 
-      - name: Build
-        run: npm run build
-
       - name: Production dependency audit
         run: npm run audit:prod
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: context-capture-saver
-          path: dist/context-capture-saver.zip
-          if-no-files-found: error
-          retention-days: 14
 
   dependency-review:
     if: github.event_name == 'pull_request'

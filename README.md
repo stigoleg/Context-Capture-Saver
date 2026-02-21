@@ -1,8 +1,8 @@
 # Context Capture Saver
 
-Capture the useful part of web pages, PDFs, and YouTube transcripts to local files you control.
+Capture useful context from websites, PDFs, and YouTube transcripts into local JSON and/or SQLite storage you control.
 
-Context Capture Saver is built for research and AI workflows where you need clean, structured content without copy/paste noise.
+Context Capture Saver is designed for research and AI workflows where you want structured, provenance-aware data instead of ad hoc copy/paste.
 
 ## Screenshots
 
@@ -14,70 +14,76 @@ Context Capture Saver is built for research and AI workflows where you need clea
 
 ![Context Capture Saver Bubble Menu](context-capture-saver-bubble.png)
 
-## Why Use It
+## Key Features
 
-- Save the main content from pages, not just raw HTML.
-- Keep highlights and notes together with the capture.
-- Store data locally in JSON or SQLite.
-- Export content that is ready for AI agents and downstream processing.
+- Capture article-focused page content, not raw HTML.
+- Save with notes, highlights, and queued highlight workflows.
+- YouTube transcript capture with transcript-only, timestamped-segments-only, or both.
+- Bubble menu support on YouTube selections, including transcript save actions.
+- PDF extraction with metadata and selection-aware capture support.
+- Local storage backends: `JSON` (default), `SQLite`, and `JSON + SQLite` (write both).
+- JSON output is always written under `json/` inside the selected folder.
+- Optional structured JSON chunks (`content.chunks`) in addition to full `documentText`.
+- SQLite backend uses a graph-ready schema for analytics and AI agent workflows.
+- Automatic migration of legacy SQLite databases (`captures`-only schema) to the latest schema.
+- Pending highlights/notes panel now shows queued annotations on-page with delete controls before save.
 
-## Core Features
+## Browser Support
 
-- Website capture with cleaned article-focused text.
-- Save content with or without notes.
-- Highlight queue and highlight-with-note workflow.
-- YouTube transcript capture with multiple transcript storage modes.
-- PDF text extraction with metadata.
-- Automatic word count, character count, and content hash.
-- Optional diagnostics metadata (off by default).
-- Customizable bubble menu:
-  - enable/disable actions
-  - drag-and-drop ordering
-  - template layout (`Horizontal` or `Vertical`)
-  - visual styles (`Glass`, `Clean`, `Midnight`)
-- Live shortcut display in settings with direct link to Chrome shortcut editor.
+- Chrome/Chromium (Manifest V3)
+- Firefox build output included in the same pipeline
 
 ## Install
 
-### Option 1: From release (recommended)
+### Option 1: Release Artifacts
 
-1. Download `context-capture-saver.zip` from the latest release.
-2. Unzip it.
-3. Open `chrome://extensions`.
-4. Enable **Developer mode**.
-5. Click **Load unpacked** and select the unzipped folder.
+- Chrome package: `context-capture-saver-chrome.zip` (and compatibility alias `context-capture-saver.zip`)
+- Firefox package: `context-capture-saver-firefox.zip`
 
-### Option 2: From source
-
-1. Clone this repository.
-2. Run:
+### Option 2: Build From Source
 
 ```bash
 npm ci
 npm run build
 ```
 
-3. Open `chrome://extensions`.
-4. Enable **Developer mode**.
-5. Click **Load unpacked** and select `dist/`.
+Build outputs:
 
-## Setup (First Time)
+- Chrome unpacked extension: `dist/chrome/`
+- Firefox unpacked add-on: `dist/firefox/`
+- Chrome zip: `dist/context-capture-saver-chrome.zip`
+- Firefox zip: `dist/context-capture-saver-firefox.zip`
 
-1. Open extension settings.
-2. Choose your storage folder.
-3. Optional: run **Test write**.
-4. Configure your preferred:
-   - storage backend (`JSON` or `SQLite`)
-   - folder organization (JSON mode)
-   - large-content compression (JSON mode)
-   - diagnostics inclusion
-   - bubble template layout/style and actions
+Load in browsers:
 
-## How You Capture
+1. Chrome: open `chrome://extensions`, enable Developer mode, click **Load unpacked**, select `dist/chrome/`.
+2. Firefox (temporary): open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on**, select `dist/firefox/manifest.json`.
+
+## Build Commands
+
+```bash
+npm run build         # build both Chrome + Firefox
+npm run build:chrome  # build only Chrome
+npm run build:firefox # build only Firefox
+```
+
+## First-Time Setup
+
+1. Open extension options.
+2. Choose a local folder with read/write permission.
+3. Run **Test write** (optional but recommended).
+4. Configure:
+   - storage backend (`JSON`, `SQLite`, `JSON + SQLite`)
+   - JSON folder organization options
+   - compression and diagnostics options
+   - optional JSON structured chunk export
+   - bubble menu layout/style/actions
+
+## Capture Workflows
 
 ### Websites
 
-Use right-click menu, shortcuts, or bubble menu actions:
+Use right-click menus, shortcuts, popup, or bubble actions:
 
 - Save content
 - Save content with note
@@ -91,18 +97,19 @@ On supported YouTube video pages:
 
 - Save transcript
 - Save transcript with note
+- Selection bubble includes YouTube transcript actions
 
 Transcript storage modes:
 
-- plain transcript text only
-- timestamped lines only
+- plain transcript text
+- timestamped transcript segments
 - both
 
 ### PDFs
 
-- Extracts page text and PDF metadata.
-- Right-click capture and highlight actions are supported.
-- Chrome’s built-in PDF viewer can still limit inline overlay behavior in some cases.
+- Extracts text + metadata
+- Supports capture and highlight actions
+- Browser PDF viewer behavior can still affect some selection UX
 
 ## Keyboard Shortcuts
 
@@ -111,31 +118,33 @@ Default shortcuts:
 - macOS: `Shift + Command + D`, `Shift + Command + C`
 - Windows/Linux: `Ctrl + Shift + D`, `Ctrl + Shift + C`
 
-You can change shortcuts in `chrome://extensions/shortcuts`.
-The settings page shows currently configured values.
+In Chrome, edit shortcuts in `chrome://extensions/shortcuts`.
 
-## Saved Data
+## Data Storage Overview
 
-Each capture includes:
+### JSON Mode
 
-- source metadata (URL, title, site, etc.)
-- capture metadata (`savedAt`, `contentHash`)
-- cleaned `documentText` (or transcript content)
-- `documentTextWordCount`
-- `documentTextCharacterCount`
-- annotations (when present)
-- optional diagnostics (if enabled)
+- Default mode.
+- Writes one capture file per save.
+- All JSON files are written under `json/` in the selected folder.
+- Optional setting can include `content.chunks` for agent-ready chunked retrieval while keeping full text.
+
+### SQLite Mode
+
+- Writes/updates a single `context-captures.sqlite` file in the selected folder.
+- Uses SQL.js (no external DB server).
+- Automatically upgrades legacy DBs in place.
+
+### JSON + SQLite Mode
+
+- Writes both outputs in the same save operation.
+- If one backend fails and the other succeeds, successful output is preserved and surfaced.
 
 ## Privacy
 
 - Data is written only to your selected local folder.
-- No required external backend.
-- No cloud dependency for normal capture workflow.
-
-## Known Limitations
-
-- Some YouTube videos do not expose transcript/caption data.
-- Chrome PDF viewer restrictions can block some inline selection UX paths.
+- No required remote backend.
+- No cloud dependency in normal capture flow.
 
 ## Development
 
@@ -149,10 +158,161 @@ npm run build
 
 ## Contributing
 
-Issues and PRs are welcome.
+1. Keep changes scoped.
+2. Run checks/tests before opening a PR.
+3. Include a concise behavior-change summary.
 
-When contributing:
+## SQLite Schema (Graph-Ready)
 
-1. Keep changes scoped and tested.
-2. Run lint, typecheck, and tests before opening a PR.
-3. Include a short summary of behavior changes in your PR description.
+The SQLite backend is normalized for both analytical queries and AI-agent retrieval.
+
+Core principles:
+
+- One `document` per source URL.
+- One `capture` per save event.
+- Multiple `chunks` per capture/document (document chunks, highlights, notes, transcript segments).
+- Graph tables (`entities`, `edges`, `provenance`) enable relation modeling with evidence links back to chunks.
+- Optional derived tables (`annotations`, `transcript_segments`) make common querying cheaper without losing the chunk-centric model.
+
+### Tables
+
+- `meta`: DB metadata (`db_schema_version`, migration/backfill flags, FTS availability).
+- `documents`: canonical source objects (`url`, title/site/language/published metadata).
+- `captures`: immutable-ish capture events (hashes, transcript payload, diagnostics, optional legacy payload).
+- `chunks`: agent-ready text units with offsets/type/provenance anchor.
+- `annotations`: structured highlights/notes derived from capture annotations.
+- `transcript_segments`: structured transcript lines with stable segment ordering.
+- `entities`: graph nodes (document, capture, site, annotation, future extracted entities).
+- `entity_aliases`: alternate labels/mentions for entities.
+- `edges`: graph relations (`predicate`, `confidence`, optional properties).
+- `provenance`: evidence links from entity/edge subjects back to `chunks`.
+- `chunks_fts` (optional virtual table): full-text index when FTS5 is available.
+- `captures_legacy` (optional): preserved legacy table after auto-migration.
+
+### Mermaid Diagram
+
+```mermaid
+erDiagram
+  META {
+    text key PK
+    text value
+  }
+
+  DOCUMENTS {
+    text document_id PK
+    text url UK
+    text canonical_url
+    text title
+    text site
+    text language
+    text published_at
+    text metadata_json
+    text created_at
+  }
+
+  CAPTURES {
+    text capture_id PK
+    text document_id FK
+    text capture_type
+    text saved_at
+    text content_hash
+    text document_text
+    int document_text_word_count
+    int document_text_character_count
+    text document_text_compressed_json
+    text transcript_text
+    text transcript_segments_json
+    text diagnostics_json
+    text legacy_record_json
+  }
+
+  CHUNKS {
+    text chunk_id PK
+    text document_id FK
+    text capture_id FK
+    text chunk_type
+    text text
+    text comment
+    text created_at
+    int start_offset
+    int end_offset
+    text source_hash
+    int is_preview
+  }
+
+  ANNOTATIONS {
+    text annotation_id PK
+    text document_id FK
+    text capture_id FK
+    text annotation_type
+    text selected_text
+    text comment
+    text created_at
+    int start_offset
+    int end_offset
+  }
+
+  TRANSCRIPT_SEGMENTS {
+    text segment_id PK
+    text document_id FK
+    text capture_id FK
+    int segment_index
+    text timestamp_text
+    text text
+    text created_at
+  }
+
+  ENTITIES {
+    text entity_id PK
+    text entity_type
+    text name
+    text canonical_id
+    text properties_json
+    text created_at
+  }
+
+  ENTITY_ALIASES {
+    text entity_id FK
+    text alias
+  }
+
+  EDGES {
+    text edge_id PK
+    text from_entity_id FK
+    text to_entity_id FK
+    text predicate
+    real confidence
+    text properties_json
+    text created_at
+  }
+
+  PROVENANCE {
+    text provenance_id PK
+    text subject_type
+    text subject_id
+    text chunk_id FK
+    text evidence_text
+    text created_at
+  }
+
+  CHUNKS_FTS {
+    text chunk_id
+    text text
+    text comment
+  }
+
+  DOCUMENTS ||--o{ CAPTURES : has
+  DOCUMENTS ||--o{ CHUNKS : contains
+  CAPTURES ||--o{ CHUNKS : produces
+  DOCUMENTS ||--o{ ANNOTATIONS : has
+  CAPTURES ||--o{ ANNOTATIONS : includes
+  DOCUMENTS ||--o{ TRANSCRIPT_SEGMENTS : has
+  CAPTURES ||--o{ TRANSCRIPT_SEGMENTS : includes
+  ENTITIES ||--o{ ENTITY_ALIASES : has
+  ENTITIES ||--o{ EDGES : from
+  ENTITIES ||--o{ EDGES : to
+  CHUNKS ||--o{ PROVENANCE : evidences
+  CHUNKS ||--o{ CHUNKS_FTS : indexed_as
+```
+
+Note: `provenance.subject_id` is polymorphic (`entity_id` or `edge_id`) based on `subject_type`, so that relation is enforced in application logic rather than a single SQL foreign key.

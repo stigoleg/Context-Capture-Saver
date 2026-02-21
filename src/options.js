@@ -52,6 +52,8 @@ const clearFolderButton = /** @type {HTMLButtonElement} */ (document.getElementB
 const storageBackendJson = /** @type {HTMLInputElement} */ (document.getElementById("storageBackendJson"));
 /** @type {HTMLInputElement} */
 const storageBackendSqlite = /** @type {HTMLInputElement} */ (document.getElementById("storageBackendSqlite"));
+/** @type {HTMLInputElement} */
+const storageBackendBoth = /** @type {HTMLInputElement} */ (document.getElementById("storageBackendBoth"));
 /** @type {HTMLElement} */
 const folderOrganizationSection = /** @type {HTMLElement} */ (document.getElementById("folderOrganizationSection"));
 /** @type {HTMLElement} */
@@ -66,6 +68,8 @@ const organizeOrderSelect = /** @type {HTMLSelectElement} */ (document.getElemen
 const compressLargeTextInput = /** @type {HTMLInputElement} */ (document.getElementById("compressLargeTextInput"));
 /** @type {HTMLInputElement} */
 const compressionThresholdInput = /** @type {HTMLInputElement} */ (document.getElementById("compressionThresholdInput"));
+/** @type {HTMLInputElement} */
+const includeJsonChunksInput = /** @type {HTMLInputElement} */ (document.getElementById("includeJsonChunksInput"));
 /** @type {HTMLInputElement} */
 const includeDiagnosticsInput = /** @type {HTMLInputElement} */ (document.getElementById("includeDiagnosticsInput"));
 /** @type {HTMLSelectElement} */
@@ -112,6 +116,12 @@ let dragStartIndex = -1;
 let currentDropSlot = null;
 let autoSaveTimer = 0;
 let toastTimer = 0;
+
+const JSON_OUTPUT_ROOT_DIR = "json";
+
+function errorMessage(error, fallback) {
+  return error?.message || fallback;
+}
 
 function setStatus(text, isError = false) {
   folderStatus.textContent = text;
@@ -404,14 +414,19 @@ async function refreshStatus() {
 
 async function refreshCaptureSettings() {
   const settings = await getSettings();
-  storageBackendJson.checked = settings.storageBackend !== "sqlite";
-  storageBackendSqlite.checked = settings.storageBackend === "sqlite";
+  const backend = settings.storageBackend === "sqlite" || settings.storageBackend === "both"
+    ? settings.storageBackend
+    : "json";
+  storageBackendJson.checked = backend === "json";
+  storageBackendSqlite.checked = backend === "sqlite";
+  storageBackendBoth.checked = backend === "both";
   organizeByDateInput.checked = Boolean(settings.organizeByDate);
   organizeByTypeInput.checked = Boolean(settings.organizeByType);
   organizeOrderSelect.value = settings.organizeOrder || "type_date";
   syncStorageBackendUi();
   compressLargeTextInput.checked = Boolean(settings.compressLargeText);
   compressionThresholdInput.value = String(settings.compressionThresholdChars);
+  includeJsonChunksInput.checked = Boolean(settings.includeJsonChunks);
   includeDiagnosticsInput.checked = Boolean(settings.includeDiagnostics);
   youtubeTranscriptStorageModeSelect.value = normalizeTranscriptStorageMode(
     settings.youtubeTranscriptStorageMode
@@ -444,11 +459,12 @@ function toggleLargeContentInputs(disabled) {
   largeContentSection.hidden = disabled;
   compressLargeTextInput.disabled = disabled;
   compressionThresholdInput.disabled = disabled;
+  includeJsonChunksInput.disabled = disabled;
 }
 
 function updateOrderVisibility() {
   const showOrder =
-    storageBackendJson.checked && organizeByDateInput.checked && organizeByTypeInput.checked;
+    hasJsonOutputEnabled() && organizeByDateInput.checked && organizeByTypeInput.checked;
   organizeOrderSelect.disabled = !showOrder;
   const orderField = /** @type {HTMLElement|null} */ (organizeOrderSelect.closest(".field"));
   if (orderField) {
@@ -456,8 +472,22 @@ function updateOrderVisibility() {
   }
 }
 
+function hasJsonOutputEnabled() {
+  return storageBackendJson.checked || storageBackendBoth.checked;
+}
+
+function selectedStorageBackend() {
+  if (storageBackendBoth.checked) {
+    return "both";
+  }
+  if (storageBackendSqlite.checked) {
+    return "sqlite";
+  }
+  return "json";
+}
+
 function syncStorageBackendUi() {
-  const useJson = storageBackendJson.checked;
+  const useJson = hasJsonOutputEnabled();
   toggleOrganizationInputs(!useJson);
   toggleLargeContentInputs(!useJson);
   updateOrderVisibility();
@@ -519,8 +549,9 @@ async function persistCaptureSettings() {
       compressionThresholdInput.value,
       DEFAULT_SETTINGS.compressionThresholdChars
     ),
+    includeJsonChunks: includeJsonChunksInput.checked,
     includeDiagnostics: includeDiagnosticsInput.checked,
-    storageBackend: storageBackendSqlite.checked ? "sqlite" : "json",
+    storageBackend: selectedStorageBackend(),
     youtubeTranscriptStorageMode: normalizeTranscriptStorageMode(
       youtubeTranscriptStorageModeSelect.value
     ),
@@ -673,7 +704,7 @@ async function testWrite() {
       return;
     }
 
-    const record = buildCaptureRecord({
+    let record = buildCaptureRecord({
       captureType: "settings_test",
       source: {
         url: chrome.runtime.getURL("src/options.html"),
@@ -693,50 +724,135 @@ async function testWrite() {
     });
 
     const settings = await getSettings();
-    if (settings.storageBackend === "sqlite") {
-      const { saveRecordToSqlite } = await import("./sqlite.js");
-      const dbFileName = await saveRecordToSqlite(handle, record);
-      setStatus(`Test record saved to ${dbFileName}`);
+    const storageBackend =
+      settings.storageBackend === "sqlite" || settings.storageBackend === "both"
+        ? settings.storageBackend
+        : "json";
+    const writesSqlite = storageBackend === "sqlite" || storageBackend === "both";
+    const writesJson = storageBackend === "json" || storageBackend === "both";
+
+    if (writesJson && settings.includeJsonChunks) {
+      const { buildJsonChunksForRecord } = await import("./sqlite.js");
+      record.content.chunks = buildJsonChunksForRecord(record);
+    }
+
+    let sqliteFileName = null;
+    let sqliteError = null;
+    if (writesSqlite) {
+      try {
+        const { saveRecordToSqlite } = await import("./sqlite.js");
+        sqliteFileName = await saveRecordToSqlite(handle, record);
+      } catch (error) {
+        sqliteError = error;
+      }
+    }
+
+    let storedJsonPath = null;
+    let jsonError = null;
+    if (writesJson) {
+      try {
+        const fileName = buildFileName(record);
+        const subdirectories = buildJsonSubdirectories(record, settings);
+        await writeJsonToDirectory(handle, fileName, record, subdirectories);
+        storedJsonPath = subdirectories.length ? `${subdirectories.join("/")}/${fileName}` : fileName;
+      } catch (error) {
+        jsonError = error;
+      }
+    }
+
+    if (writesJson && writesSqlite) {
+      if (jsonError && sqliteError) {
+        setStatus(
+          `Test write failed: json=${errorMessage(
+            jsonError,
+            "JSON write failed"
+          )}; sqlite=${errorMessage(sqliteError, "SQLite write failed")}`,
+          true
+        );
+        return;
+      }
+      if (jsonError && sqliteFileName) {
+        setStatus(
+          `Test record saved to ${sqliteFileName} (JSON failed: ${errorMessage(
+            jsonError,
+            "JSON write failed"
+          )})`,
+          true
+        );
+        return;
+      }
+      if (sqliteError && storedJsonPath) {
+        setStatus(
+          `Test record saved to ${storedJsonPath} (SQLite failed: ${errorMessage(
+            sqliteError,
+            "SQLite write failed"
+          )})`,
+          true
+        );
+        return;
+      }
+      setStatus(`Test record saved to ${storedJsonPath} and ${sqliteFileName}`);
       return;
     }
-
-    const fileName = buildFileName(record);
-    const subdirectories = [];
-    const date = new Date(record.savedAt);
-    const dateSegment = Number.isNaN(date.getTime())
-      ? null
-      : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-          date.getDate()
-        ).padStart(2, "0")}`;
-    const typeSegment = String(record.captureType || "capture")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 60) || "capture";
-
-    const order = settings.organizeOrder === "date_type" ? "date_type" : "type_date";
-    if (order === "date_type") {
-      if (settings.organizeByDate && dateSegment) {
-        subdirectories.push(dateSegment);
+    if (writesJson) {
+      if (jsonError) {
+        setStatus(`Test write failed: ${errorMessage(jsonError, "JSON write failed")}`, true);
+        return;
       }
-      if (settings.organizeByType) {
-        subdirectories.push(typeSegment);
-      }
-    } else {
-      if (settings.organizeByType) {
-        subdirectories.push(typeSegment);
-      }
-      if (settings.organizeByDate && dateSegment) {
-        subdirectories.push(dateSegment);
-      }
+      setStatus(`Test file saved: ${storedJsonPath}`);
+      return;
     }
-
-    await writeJsonToDirectory(handle, fileName, record, subdirectories);
-    const storedPath = subdirectories.length ? `${subdirectories.join("/")}/${fileName}` : fileName;
-    setStatus(`Test file saved: ${storedPath}`);
+    if (sqliteError) {
+      setStatus(`Test write failed: ${errorMessage(sqliteError, "SQLite write failed")}`, true);
+      return;
+    }
+    setStatus(`Test record saved to ${sqliteFileName}`);
   } catch (error) {
     setStatus(`Test write failed: ${error?.message || "Unknown error"}`, true);
   }
+}
+
+function slugifySegment(input) {
+  return String(input || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+function formatDateSegment(isoString) {
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+}
+
+function buildJsonSubdirectories(record, settings) {
+  const subdirectories = [JSON_OUTPUT_ROOT_DIR];
+  const dateSegment = settings.organizeByDate ? formatDateSegment(record.savedAt) : null;
+  const typeSegment = settings.organizeByType
+    ? slugifySegment(record.captureType || "capture") || "capture"
+    : null;
+  const order = settings.organizeOrder === "date_type" ? "date_type" : "type_date";
+  if (order === "date_type") {
+    if (dateSegment) {
+      subdirectories.push(dateSegment);
+    }
+    if (typeSegment) {
+      subdirectories.push(typeSegment);
+    }
+  } else {
+    if (typeSegment) {
+      subdirectories.push(typeSegment);
+    }
+    if (dateSegment) {
+      subdirectories.push(dateSegment);
+    }
+  }
+  return subdirectories;
 }
 
 async function clearFolder() {
@@ -764,6 +880,10 @@ storageBackendSqlite.addEventListener("change", () => {
   syncStorageBackendUi();
   scheduleAutoSave();
 });
+storageBackendBoth.addEventListener("change", () => {
+  syncStorageBackendUi();
+  scheduleAutoSave();
+});
 organizeByDateInput.addEventListener("change", () => {
   updateOrderVisibility();
   scheduleAutoSave();
@@ -776,6 +896,7 @@ organizeOrderSelect.addEventListener("change", scheduleAutoSave);
 compressLargeTextInput.addEventListener("change", scheduleAutoSave);
 compressionThresholdInput.addEventListener("input", scheduleAutoSave);
 compressionThresholdInput.addEventListener("change", scheduleAutoSave);
+includeJsonChunksInput.addEventListener("change", scheduleAutoSave);
 includeDiagnosticsInput.addEventListener("change", scheduleAutoSave);
 youtubeTranscriptStorageModeSelect.addEventListener("change", scheduleAutoSave);
 for (const input of bubbleLayoutInputs) {
