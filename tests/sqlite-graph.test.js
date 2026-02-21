@@ -4,6 +4,10 @@ import path from "node:path";
 
 import initSqlJs from "sql.js";
 import { SaveOperationQueue } from "../src/save-queue.js";
+import {
+  MAX_ANNOTATION_COMMENT_CHARS,
+  MAX_ANNOTATION_TEXT_CHARS
+} from "../src/annotation-policy.js";
 
 import {
   buildJsonChunksForRecord,
@@ -367,6 +371,53 @@ test("saveRecordToDbV2 writes document, capture, chunks, and graph rows", () => 
     assert.equal(typeof highlightRow.start_offset, "number");
     assert.equal(typeof highlightRow.end_offset, "number");
     assert.equal(highlightRow.end_offset > highlightRow.start_offset, true);
+  } finally {
+    db.close();
+  }
+});
+
+test("saveRecordToDbV2 truncates oversized annotation fields for SQLite storage", () => {
+  const db = new SQL.Database();
+  try {
+    const record = {
+      id: "capture-v2-oversized-annotation",
+      schemaVersion: "1.4.0",
+      captureType: "selected_text",
+      savedAt: "2026-02-21T12:30:00.000Z",
+      source: {
+        url: "https://example.com/oversized-annotation",
+        title: "Oversized Annotation",
+        site: "example.com",
+        language: "en",
+        publishedAt: "2026-02-10T00:00:00.000Z",
+        metadata: {}
+      },
+      content: {
+        documentText: "Alpha beta gamma delta epsilon.",
+        contentHash: "hash-oversized-annotation",
+        annotations: [
+          {
+            selectedText: "x".repeat(MAX_ANNOTATION_TEXT_CHARS + 50),
+            comment: "y".repeat(MAX_ANNOTATION_COMMENT_CHARS + 25),
+            createdAt: "2026-02-21T12:30:01.000Z"
+          }
+        ],
+        transcriptSegments: null
+      }
+    };
+
+    saveRecordToDbV2(db, record);
+    const row = queryRows(
+      db,
+      `
+        SELECT selected_text, comment
+        FROM annotations
+        WHERE capture_id = 'capture-v2-oversized-annotation'
+        LIMIT 1;
+      `
+    )[0];
+    assert.equal(row.selected_text.length, MAX_ANNOTATION_TEXT_CHARS);
+    assert.equal(row.comment.length, MAX_ANNOTATION_COMMENT_CHARS);
   } finally {
     db.close();
   }

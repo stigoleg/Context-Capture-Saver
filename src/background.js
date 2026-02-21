@@ -1,5 +1,14 @@
 import { applyContentPolicies } from "./processing.js";
-import { buildCaptureRecord, buildFileName, validateCaptureRecord } from "./schema.js";
+import {
+  applyAnnotationPolicies,
+  buildCaptureRecord,
+  buildFileName,
+  validateCaptureRecord
+} from "./schema.js";
+import {
+  MAX_ANNOTATION_COMMENT_CHARS,
+  MAX_ANNOTATION_TEXT_CHARS
+} from "./annotation-policy.js";
 import { SaveOperationQueue, createAbortErrorForQueue } from "./save-queue.js";
 import { getLastCaptureStatus, getSettings, setLastCaptureStatus } from "./settings.js";
 import { buildJsonChunksForRecord, saveRecordToSqlite } from "./sqlite.js";
@@ -688,8 +697,6 @@ function expandSelectionToFullSentences(selectedText, documentText) {
 }
 
 function normalizeAnnotation(selectedText, comment, options = {}) {
-  const MAX_ANNOTATION_TEXT_CHARS = 12000;
-  const MAX_ANNOTATION_COMMENT_CHARS = 4000;
   const expandedText = expandSelectionToFullSentences(selectedText || "", options.documentText || "");
   const normalizedText = expandedText.trim().slice(0, MAX_ANNOTATION_TEXT_CHARS);
   const normalizedComment = (comment || "").trim().slice(0, MAX_ANNOTATION_COMMENT_CHARS);
@@ -1198,6 +1205,9 @@ async function saveRecord(record, options = {}) {
   const writesJson = storageBackend === "json" || storageBackend === "both";
 
   let processed = await applyContentPolicies(record, settings);
+  processed = applyAnnotationPolicies(processed, {
+    includeDiagnostics: settings.includeDiagnostics !== false
+  });
   throwIfAborted(signal);
   if (writesJson && settings.includeJsonChunks === true) {
     processed = {

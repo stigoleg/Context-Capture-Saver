@@ -119,6 +119,13 @@ Desired result: Annotation and comment fields are bounded, validated, and consis
 - [ ] Add tests for large payload inputs.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `validation: enforce annotation size limits`.
+- [x] Define max length limits for annotation-related fields.
+- [x] Enforce truncation or rejection policy.
+- [x] Record truncation info in diagnostics when enabled.
+- [x] Apply same rules for JSON and SQLite paths.
+- [x] Add tests for large payload inputs.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `validation: enforce annotation size limits`.
 
 ## 10. Refactor oversized modules
 Description: Reduce complexity by splitting large files into focused modules with clearer boundaries.

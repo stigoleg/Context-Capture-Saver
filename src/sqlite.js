@@ -1,5 +1,6 @@
 import initSqlJs from "./vendor/sql-wasm.js";
 import { writeFileHandleWithRetry } from "./write-retry.js";
+import { sanitizeAnnotations } from "./annotation-policy.js";
 
 export const DEFAULT_DB_NAME = "context-captures.sqlite";
 export const SQLITE_DB_SCHEMA_VERSION = 5;
@@ -1149,7 +1150,9 @@ function buildChunkRows(record, documentId, captureId) {
   }
 
   const scanOffsets = Boolean(documentText) && documentText.length <= MAX_OFFSET_SCAN_CHARS;
-  const rawAnnotations = Array.isArray(content.annotations) ? content.annotations : [];
+  const { annotations: rawAnnotations } = sanitizeAnnotations(content.annotations, {
+    savedAt
+  });
   let annotationIndex = 0;
   for (const annotation of rawAnnotations) {
     const selectedText =

@@ -1,4 +1,9 @@
 import { computeContentHash } from "./hash.js";
+import {
+  MAX_ANNOTATION_COMMENT_CHARS,
+  MAX_ANNOTATION_TEXT_CHARS,
+  sanitizeAnnotations
+} from "./annotation-policy.js";
 
 export const SCHEMA_VERSION = "1.4.0";
 
@@ -137,10 +142,70 @@ export function validateCaptureRecord(record) {
     if (typeof record.content.documentTextCharacterCount !== "number") {
       errors.push("content.documentTextCharacterCount is required");
     }
+
+    if (record.content.annotations !== null && record.content.annotations !== undefined) {
+      if (!Array.isArray(record.content.annotations)) {
+        errors.push("content.annotations must be an array when provided");
+      } else {
+        for (const annotation of record.content.annotations) {
+          if (!annotation || typeof annotation !== "object") {
+            errors.push("content.annotations entries must be objects");
+            continue;
+          }
+          const selectedText = annotation.selectedText === undefined ? "" : String(annotation.selectedText);
+          const comment = annotation.comment === undefined || annotation.comment === null
+            ? null
+            : String(annotation.comment);
+          if (selectedText.length > MAX_ANNOTATION_TEXT_CHARS) {
+            errors.push(
+              `content.annotations.selectedText exceeds ${MAX_ANNOTATION_TEXT_CHARS} characters`
+            );
+          }
+          if (comment !== null && comment.length > MAX_ANNOTATION_COMMENT_CHARS) {
+            errors.push(
+              `content.annotations.comment exceeds ${MAX_ANNOTATION_COMMENT_CHARS} characters`
+            );
+          }
+        }
+      }
+    }
   }
 
   return {
     valid: errors.length === 0,
     errors
   };
+}
+
+export function applyAnnotationPolicies(record, options = {}) {
+  if (!record || typeof record !== "object" || !record.content || typeof record.content !== "object") {
+    return record;
+  }
+
+  const includeDiagnostics = options.includeDiagnostics !== false;
+  const { annotations, stats } = sanitizeAnnotations(record.content.annotations, {
+    savedAt: record.savedAt
+  });
+
+  const next = {
+    ...record,
+    content: {
+      ...record.content,
+      annotations: annotations.length ? annotations : null
+    }
+  };
+
+  const hadTruncation = stats.truncatedTextCount > 0 || stats.truncatedCommentCount > 0;
+  const hadDrops = stats.droppedCount > 0;
+  if (includeDiagnostics && (hadTruncation || hadDrops)) {
+    next.diagnostics = {
+      ...(record.diagnostics && typeof record.diagnostics === "object" ? record.diagnostics : {}),
+      annotationPolicies: {
+        policy: "truncate",
+        ...stats
+      }
+    };
+  }
+
+  return next;
 }
