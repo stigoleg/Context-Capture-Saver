@@ -113,3 +113,26 @@ test("SaveOperationQueue supports cancellation of queued jobs before they start"
   assert.equal(queue.pendingCount, 0);
   assert.equal(queue.runningCount, 0);
 });
+
+test("SaveOperationQueue tolerates logger failures without failing jobs", async () => {
+  const queue = new SaveOperationQueue({
+    defaultTimeoutMs: 2000,
+    logger: {
+      info() {
+        throw new Error("logger info failed");
+      },
+      warn() {
+        throw new Error("logger warn failed");
+      }
+    }
+  });
+
+  const result = await queue.enqueue({
+    label: "logger-failure-job",
+    task: async () => "ok"
+  });
+
+  assert.equal(result, "ok");
+  assert.equal(queue.pendingCount, 0);
+  assert.equal(queue.runningCount, 0);
+});

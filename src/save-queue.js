@@ -189,13 +189,17 @@ export class SaveOperationQueue {
       return;
     }
 
-    if (event === "timed_out" && typeof this.#logger.warn === "function") {
-      this.#logger.warn("[capture-queue]", event, payload);
-      return;
-    }
+    try {
+      if (event === "timed_out" && typeof this.#logger.warn === "function") {
+        this.#logger.warn("[capture-queue]", event, payload);
+        return;
+      }
 
-    if (typeof this.#logger.info === "function") {
-      this.#logger.info("[capture-queue]", event, payload);
+      if (typeof this.#logger.info === "function") {
+        this.#logger.info("[capture-queue]", event, payload);
+      }
+    } catch (_error) {
+      // Logging failures must never affect queue execution.
     }
   }
 }
