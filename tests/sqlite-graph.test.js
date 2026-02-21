@@ -7,6 +7,7 @@ import { SaveOperationQueue } from "../src/save-queue.js";
 
 import {
   buildJsonChunksForRecord,
+  SQLITE_DB_SCHEMA_NAME,
   SQLITE_DB_SCHEMA_VERSION,
   ensureSchemaV2,
   getDbSchemaVersion,
@@ -90,6 +91,18 @@ test("ensureSchemaV2 creates latest graph-ready tables on a new database", () =>
     assert.equal(
       scalar(db, `SELECT value FROM meta WHERE key = 'db_schema_version';`),
       String(SQLITE_DB_SCHEMA_VERSION)
+    );
+    assert.equal(
+      scalar(db, `SELECT value FROM meta WHERE key = 'db_schema_name';`),
+      SQLITE_DB_SCHEMA_NAME
+    );
+    assert.equal(
+      scalar(db, `SELECT value FROM meta WHERE key = 'last_migration_id';`) !== null,
+      true
+    );
+    assert.equal(
+      scalar(db, `SELECT value FROM meta WHERE key = 'migration_history_json';`) !== null,
+      true
     );
 
     for (const table of [
@@ -194,6 +207,14 @@ test("migrateLegacyToV2 migrates legacy captures rows into documents/captures/ch
     assert.equal(scalar(db, `SELECT COUNT(*) FROM edges;`) >= 1, true);
     assert.equal(scalar(db, `SELECT COUNT(*) FROM provenance;`) >= 1, true);
     assert.equal(scalar(db, `SELECT url FROM documents LIMIT 1;`), "https://example.com/legacy");
+    assert.equal(
+      scalar(db, `SELECT value FROM meta WHERE key = 'db_schema_name';`),
+      SQLITE_DB_SCHEMA_NAME
+    );
+    assert.equal(
+      scalar(db, `SELECT value FROM meta WHERE key = 'last_migration_id';`),
+      "legacy_captures_to_v3"
+    );
 
     const chunkTypes = new Set(queryRows(db, `SELECT chunk_type FROM chunks;`).map((row) => row.chunk_type));
     assert.equal(chunkTypes.has("document"), true);
@@ -656,6 +677,28 @@ test("SaveOperationQueue serializes rapid sqlite saves without corruption", asyn
       scalar(db, `SELECT COUNT(DISTINCT capture_id) FROM captures;`),
       scalar(db, `SELECT COUNT(*) FROM captures;`)
     );
+  } finally {
+    db.close();
+  }
+});
+
+test("ensureSchemaV2 keeps migration metadata stable on reopen when no migration is needed", () => {
+  const db = new SQL.Database();
+  try {
+    ensureSchemaV2(db);
+    const beforeMigrationId = scalar(db, `SELECT value FROM meta WHERE key = 'last_migration_id';`);
+    const beforeMigrationAt = scalar(db, `SELECT value FROM meta WHERE key = 'last_migration_at';`);
+    const beforeHistory = scalar(db, `SELECT value FROM meta WHERE key = 'migration_history_json';`);
+
+    ensureSchemaV2(db);
+
+    const afterMigrationId = scalar(db, `SELECT value FROM meta WHERE key = 'last_migration_id';`);
+    const afterMigrationAt = scalar(db, `SELECT value FROM meta WHERE key = 'last_migration_at';`);
+    const afterHistory = scalar(db, `SELECT value FROM meta WHERE key = 'migration_history_json';`);
+
+    assert.equal(afterMigrationId, beforeMigrationId);
+    assert.equal(afterMigrationAt, beforeMigrationAt);
+    assert.equal(afterHistory, beforeHistory);
   } finally {
     db.close();
   }

@@ -2,10 +2,15 @@ import initSqlJs from "./vendor/sql-wasm.js";
 
 export const DEFAULT_DB_NAME = "context-captures.sqlite";
 export const SQLITE_DB_SCHEMA_VERSION = 3;
+export const SQLITE_DB_SCHEMA_NAME = "graph_v3";
 
 const MAX_OFFSET_SCAN_CHARS = 200000;
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 200;
+const MAX_MIGRATION_HISTORY = 64;
+const MIGRATION_BOOTSTRAP_V3 = "bootstrap_v3";
+const MIGRATION_BACKFILL_V3 = "backfill_v3";
+const MIGRATION_LEGACY_TO_V3 = "legacy_captures_to_v3";
 
 let sqlJsPromise;
 
@@ -232,6 +237,45 @@ export function getDbSchemaVersion(db) {
 
 export function setDbSchemaVersion(db, version) {
   setMetaValue(db, "db_schema_version", String(version));
+}
+
+function setDbSchemaName(db, schemaName = SQLITE_DB_SCHEMA_NAME) {
+  setMetaValue(db, "db_schema_name", String(schemaName));
+}
+
+function recordMigration(db, migrationId, details = null) {
+  const normalizedId = normalizeNullableString(migrationId);
+  if (!normalizedId) {
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  setMetaValue(db, "last_migration_id", normalizedId);
+  setMetaValue(db, "last_migration_at", nowIso);
+
+  const rawHistory = getMetaValue(db, "migration_history_json");
+  const parsedHistory = decodeJson(rawHistory, []);
+  const history = Array.isArray(parsedHistory) ? parsedHistory : [];
+  const historyEntry = {
+    id: normalizedId,
+    at: nowIso,
+    schema_version: SQLITE_DB_SCHEMA_VERSION,
+    schema_name: SQLITE_DB_SCHEMA_NAME,
+    details: details && typeof details === "object" ? details : null
+  };
+
+  const existingIndex = history.findIndex((item) => item?.id === normalizedId);
+  if (existingIndex >= 0) {
+    history[existingIndex] = historyEntry;
+  } else {
+    history.push(historyEntry);
+  }
+
+  if (history.length > MAX_MIGRATION_HISTORY) {
+    history.splice(0, history.length - MAX_MIGRATION_HISTORY);
+  }
+
+  setMetaValue(db, "migration_history_json", encodeJson(history));
 }
 
 function ensureCoreTablesV2(db) {
@@ -1787,6 +1831,7 @@ export function saveRecordToDbV2(db, record, options = {}) {
 export function migrateLegacyToV2(db) {
   db.run("PRAGMA foreign_keys = ON;");
   createMetaTable(db);
+  const schemaVersionBefore = getDbSchemaVersion(db);
 
   const hasLegacyNamedCaptures = isLegacyCapturesTable(db, "captures");
   const hasLegacyArchive = isLegacyCapturesTable(db, "captures_legacy");
@@ -1803,7 +1848,13 @@ export function migrateLegacyToV2(db) {
         rebuildFtsFromChunks(db);
       }
     }
+    setDbSchemaName(db, SQLITE_DB_SCHEMA_NAME);
     setDbSchemaVersion(db, SQLITE_DB_SCHEMA_VERSION);
+    if (schemaVersionBefore < SQLITE_DB_SCHEMA_VERSION) {
+      recordMigration(db, MIGRATION_BOOTSTRAP_V3, {
+        legacy_rows_migrated: 0
+      });
+    }
     return 0;
   }
 
@@ -1840,9 +1891,13 @@ export function migrateLegacyToV2(db) {
         rebuildFtsFromChunks(db);
       }
     }
+    setDbSchemaName(db, SQLITE_DB_SCHEMA_NAME);
     setDbSchemaVersion(db, SQLITE_DB_SCHEMA_VERSION);
     setMetaValue(db, "legacy_migrated_from", "captures_legacy");
     setMetaValue(db, "legacy_migrated_at", new Date().toISOString());
+    recordMigration(db, MIGRATION_LEGACY_TO_V3, {
+      legacy_rows_migrated: migrated
+    });
     db.run("COMMIT;");
     return migrated;
   } catch (error) {
@@ -1886,7 +1941,13 @@ export function ensureSchemaV2(db) {
       setMetaValue(db, "backfill_graph_rows", String(backfillStats.graphBackfilled || 0));
       setMetaValue(db, "backfill_completed_at", new Date().toISOString());
       setMetaValue(db, "backfill_fts_rows", String(hasFts ? rebuildFtsFromChunks(db) : 0));
+      setDbSchemaName(db, SQLITE_DB_SCHEMA_NAME);
       setDbSchemaVersion(db, SQLITE_DB_SCHEMA_VERSION);
+      recordMigration(db, schemaVersion === 0 ? MIGRATION_BOOTSTRAP_V3 : MIGRATION_BACKFILL_V3, {
+        annotations_backfilled: backfillStats.annotationsBackfilled || 0,
+        transcript_segments_backfilled: backfillStats.transcriptSegmentsBackfilled || 0,
+        graph_rows_backfilled: backfillStats.graphBackfilled || 0
+      });
       db.run("COMMIT;");
     } catch (error) {
       try {
@@ -1899,6 +1960,10 @@ export function ensureSchemaV2(db) {
   } else if (hasFts && !hadFts) {
     // FTS may become available in a later runtime; backfill it when first created.
     rebuildFtsFromChunks(db);
+  }
+
+  if (!getMetaValue(db, "db_schema_name")) {
+    setDbSchemaName(db, SQLITE_DB_SCHEMA_NAME);
   }
 }
 
