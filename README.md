@@ -28,6 +28,23 @@ Context Capture Saver is designed for research and AI workflows where you want s
 - Automatic migration of legacy SQLite databases (`captures`-only schema) to the latest schema.
 - Pending highlights/notes panel now shows queued annotations on-page with delete controls before save.
 
+## Release Highlights (v1.3.0)
+
+### New Features
+
+- Dual-browser build pipeline with dedicated outputs for Chrome (`dist/chrome/`) and Firefox (`dist/firefox/`).
+- `JSON + SQLite` backend mode to persist both formats in one save operation.
+- Graph-ready SQLite v2 schema with automatic migration from legacy `captures`-only databases.
+- Optional chunk export in JSON mode (`content.chunks`) for AI retrieval workflows.
+- YouTube-aware bubble menu actions on text selections.
+- On-page pending annotations panel with visible highlights/notes and delete controls before save.
+
+### Fixes and Improvements
+
+- Hardened SQLite write path and schema migration behavior.
+- Unified dist output layout and release packaging for both browser targets.
+- Documentation updates for build commands, storage modes, and schema details.
+
 ## Browser Support
 
 - Chrome/Chromium (Manifest V3)
@@ -309,10 +326,9 @@ erDiagram
   DOCUMENTS ||--o{ TRANSCRIPT_SEGMENTS : has
   CAPTURES ||--o{ TRANSCRIPT_SEGMENTS : includes
   ENTITIES ||--o{ ENTITY_ALIASES : has
-  ENTITIES ||--o{ EDGES : from
-  ENTITIES ||--o{ EDGES : to
+  ENTITIES ||--o{ EDGES : connects
   CHUNKS ||--o{ PROVENANCE : evidences
   CHUNKS ||--o{ CHUNKS_FTS : indexed_as
 ```
 
-Note: `provenance.subject_id` is polymorphic (`entity_id` or `edge_id`) based on `subject_type`, so that relation is enforced in application logic rather than a single SQL foreign key.
+Note: `edges.from_entity_id` and `edges.to_entity_id` both reference `entities.entity_id`. Also, `provenance.subject_id` is polymorphic (`entity_id` or `edge_id`) based on `subject_type`, so that relation is enforced in application logic rather than a single SQL foreign key.
