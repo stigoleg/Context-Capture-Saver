@@ -299,6 +299,13 @@ Desired result: User-facing strings are centralized and localizable without code
 - [ ] Document i18n contribution flow.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `i18n: scaffold localized ui strings`.
+- [x] Create locale resource structure.
+- [x] Replace hardcoded UI strings with lookup keys.
+- [x] Add at least one secondary locale for validation.
+- [x] Implement fallback for missing translation keys.
+- [x] Document i18n contribution flow.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `i18n: scaffold localized ui strings`.
 
 ## 20. Add structured debug logging controls
 Description: Improve observability while controlling noise and sensitive output.

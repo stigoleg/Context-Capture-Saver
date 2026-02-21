@@ -186,6 +186,14 @@ npm run build
 2. Run checks/tests before opening a PR.
 3. Include a concise behavior-change summary.
 
+## i18n Contribution Flow
+
+1. Add/update message keys in `_locales/en/messages.json`.
+2. Add corresponding translations in `_locales/nb/messages.json` (or other locale folder).
+3. Use translation lookups in runtime code via `src/i18n.js` (`t(key, fallback, substitutions)`).
+4. Keep sensible fallback strings in code so missing keys do not break UX.
+5. Run `npm run check`, `npm run typecheck`, and `npm test`.
+
 ## SQLite Schema (Graph-Ready)
 
 The SQLite backend is normalized for both analytical queries and AI-agent retrieval.

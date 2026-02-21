@@ -1,0 +1,57 @@
+{
+  "options_status_no_folder": {
+    "message": "Ingen mappe valgt."
+  },
+  "options_status_folder_linked": {
+    "message": "Mappe koblet: $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "options_status_folder_permission_needed": {
+    "message": "Mappe koblet, men tillatelse mangler: $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "options_toast_settings_saved": {
+    "message": "Innstillinger lagret."
+  },
+  "options_toast_keep_one_action": {
+    "message": "Minst én boblehandling må være aktiv."
+  },
+  "options_bubble_label_save_content": {
+    "message": "Lagre innhold"
+  },
+  "options_bubble_detail_save_content": {
+    "message": "Lagre renset sideinnhold med en gang."
+  },
+  "options_bubble_label_save_with_highlight": {
+    "message": "Lagre innhold med markering"
+  },
+  "options_bubble_detail_save_with_highlight": {
+    "message": "Lagre innhold og ta med gjeldende markering."
+  },
+  "options_bubble_label_save_with_note": {
+    "message": "Lagre innhold med notat"
+  },
+  "options_bubble_detail_save_with_note": {
+    "message": "Åpne notatfelt og lagre innhold med kommentar."
+  },
+  "options_bubble_label_highlight": {
+    "message": "Marker"
+  },
+  "options_bubble_detail_highlight": {
+    "message": "Kølegg valgt tekst som markering."
+  },
+  "options_bubble_label_highlight_with_note": {
+    "message": "Marker med notat"
+  },
+  "options_bubble_detail_highlight_with_note": {
+    "message": "Kølegg valgt tekst og legg til notat."
+  }
+}

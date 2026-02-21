@@ -1,0 +1,57 @@
+{
+  "options_status_no_folder": {
+    "message": "No folder selected."
+  },
+  "options_status_folder_linked": {
+    "message": "Folder linked: $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "options_status_folder_permission_needed": {
+    "message": "Folder linked but permission needed: $NAME$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "options_toast_settings_saved": {
+    "message": "Settings saved."
+  },
+  "options_toast_keep_one_action": {
+    "message": "At least one bubble action must stay enabled."
+  },
+  "options_bubble_label_save_content": {
+    "message": "Save content"
+  },
+  "options_bubble_detail_save_content": {
+    "message": "Save cleaned page content immediately."
+  },
+  "options_bubble_label_save_with_highlight": {
+    "message": "Save content with highlight"
+  },
+  "options_bubble_detail_save_with_highlight": {
+    "message": "Save content and include the current selection as a highlight."
+  },
+  "options_bubble_label_save_with_note": {
+    "message": "Save content with a note"
+  },
+  "options_bubble_detail_save_with_note": {
+    "message": "Open note input and save content with your comment."
+  },
+  "options_bubble_label_highlight": {
+    "message": "Highlight"
+  },
+  "options_bubble_detail_highlight": {
+    "message": "Queue selected text as a highlight."
+  },
+  "options_bubble_label_highlight_with_note": {
+    "message": "Highlight with a note"
+  },
+  "options_bubble_detail_highlight_with_note": {
+    "message": "Queue selected text and attach a note."
+  }
+}

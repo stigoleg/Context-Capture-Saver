@@ -1,4 +1,5 @@
 import { buildCaptureRecord, buildFileName } from "./schema.js";
+import { t } from "./i18n.js";
 import {
   BUBBLE_MENU_ACTIONS,
   BUBBLE_MENU_LAYOUTS,
@@ -24,23 +25,33 @@ import { resolveStorageBackendWrites } from "./storage-backend.js";
 
 const BUBBLE_MENU_ACTION_META = {
   save_content: {
+    labelKey: "options_bubble_label_save_content",
     label: "Save content",
+    detailKey: "options_bubble_detail_save_content",
     detail: "Save cleaned page content immediately."
   },
   save_content_with_highlight: {
+    labelKey: "options_bubble_label_save_with_highlight",
     label: "Save content with highlight",
+    detailKey: "options_bubble_detail_save_with_highlight",
     detail: "Save content and include the current selection as a highlight."
   },
   save_content_with_note: {
+    labelKey: "options_bubble_label_save_with_note",
     label: "Save content with a note",
+    detailKey: "options_bubble_detail_save_with_note",
     detail: "Open note input and save content with your comment."
   },
   highlight: {
+    labelKey: "options_bubble_label_highlight",
     label: "Highlight",
+    detailKey: "options_bubble_detail_highlight",
     detail: "Queue selected text as a highlight."
   },
   highlight_with_note: {
+    labelKey: "options_bubble_label_highlight_with_note",
     label: "Highlight with a note",
+    detailKey: "options_bubble_detail_highlight_with_note",
     detail: "Queue selected text and attach a note."
   }
 };
@@ -248,7 +259,7 @@ function handleActionToggle(action, checked) {
   if (!checked) {
     const next = bubbleState.enabled.filter((value) => value !== action);
     if (!next.length) {
-      showSettingsToast("At least one bubble action must stay enabled.", true);
+      showSettingsToast(t("options_toast_keep_one_action", "At least one bubble action must stay enabled."), true);
       renderBubbleMenuOptions();
       return;
     }
@@ -295,11 +306,11 @@ function renderBubbleMenuOptions() {
 
     const title = document.createElement("span");
     title.className = "bubble-option__title";
-    title.textContent = meta.label;
+    title.textContent = t(meta.labelKey || "", meta.label || action);
 
     const detail = document.createElement("span");
     detail.className = "bubble-option__detail";
-    detail.textContent = meta.detail;
+    detail.textContent = t(meta.detailKey || "", meta.detail || "");
 
     copy.append(title, detail);
     item.append(handle, checkbox, copy);
@@ -373,17 +384,24 @@ bubbleMenuList.addEventListener("drop", (event) => {
 async function refreshStatus() {
   const handle = await getSavedDirectoryHandle();
   if (!handle) {
-    setStatus("No folder selected.", true);
+    setStatus(t("options_status_no_folder", "No folder selected."), true);
     return;
   }
 
   const permission = await handle.queryPermission({ mode: "readwrite" });
   if (permission === "granted") {
-    setStatus(`Folder linked: ${handle.name}`);
+    setStatus(t("options_status_folder_linked", `Folder linked: ${handle.name}`, handle.name));
     return;
   }
 
-  setStatus(`Folder linked but permission needed: ${handle.name}`, true);
+  setStatus(
+    t(
+      "options_status_folder_permission_needed",
+      `Folder linked but permission needed: ${handle.name}`,
+      handle.name
+    ),
+    true
+  );
 }
 
 async function refreshCaptureSettings() {
@@ -527,7 +545,7 @@ async function persistCaptureSettings() {
   };
 
   await saveSettings(nextSettings);
-  showSettingsToast("Settings saved.");
+  showSettingsToast(t("options_toast_settings_saved", "Settings saved."));
 }
 
 function scheduleAutoSave() {
@@ -639,7 +657,7 @@ async function chooseFolder() {
     }
 
     await saveDirectoryHandle(handle);
-    setStatus(`Folder linked: ${handle.name}`);
+    setStatus(t("options_status_folder_linked", `Folder linked: ${handle.name}`, handle.name));
   } catch (error) {
     if (error?.name === "AbortError") {
       return;

@@ -9,7 +9,7 @@ const ROOT_DIR = path.resolve(__dirname, "..");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 
 const TARGETS = new Set(["chrome", "firefox", "all"]);
-const COPY_ITEMS = ["src", "README.md", "package.json", "package-lock.json"];
+const COPY_ITEMS = ["src", "_locales", "README.md", "package.json", "package-lock.json"];
 
 function parseTarget(argv) {
   const targetArg = argv.find((arg) => arg.startsWith("--target="));
