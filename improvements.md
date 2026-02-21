@@ -137,6 +137,13 @@ Desired result: Smaller modules with cleaner ownership and easier testing/mainte
 - [ ] Add regression tests for refactored paths.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `refactor: split large runtime modules`.
+- [x] Split `background.js` into focused modules.
+- [x] Split `content.js` into extraction/UI/transcript modules.
+- [x] Split `sqlite.js` into schema/migration/write/query modules.
+- [x] Keep public APIs stable during refactor.
+- [x] Add regression tests for refactored paths.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `refactor: split large runtime modules`.
 
 ## 11. Deduplicate shared helpers
 Description: Remove duplicated logic across background/content/options/popup to reduce drift and bugs.

@@ -732,7 +732,7 @@ async function testWrite() {
     const writesJson = storageBackend === "json" || storageBackend === "both";
 
     if (writesJson && settings.includeJsonChunks) {
-      const { buildJsonChunksForRecord } = await import("./sqlite.js");
+      const { buildJsonChunksForRecord } = await import("./sqlite-write.js");
       record.content.chunks = buildJsonChunksForRecord(record);
     }
 
@@ -740,7 +740,7 @@ async function testWrite() {
     let sqliteError = null;
     if (writesSqlite) {
       try {
-        const { saveRecordToSqlite } = await import("./sqlite.js");
+        const { saveRecordToSqlite } = await import("./sqlite-write.js");
         sqliteFileName = await saveRecordToSqlite(handle, record);
       } catch (error) {
         sqliteError = error;
