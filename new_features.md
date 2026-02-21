@@ -3,13 +3,13 @@
 ## 1. Capture Library UI
 Description: Provide an in-extension place to browse and inspect previously captured content.
 Desired result: Users can efficiently navigate captures with clear list/detail workflows.
-- [ ] Add a dedicated capture library page in extension UI.
-- [ ] Implement paginated/sortable capture list.
-- [ ] Add filters by type, site, and date.
-- [ ] Add capture detail view with metadata and content.
-- [ ] Add loading/empty/error states.
-- [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
-- [ ] Commit with a short message, e.g. `feature: add capture library ui`.
+- [x] Add a dedicated capture library page in extension UI.
+- [x] Implement paginated/sortable capture list.
+- [x] Add filters by type, site, and date.
+- [x] Add capture detail view with metadata and content.
+- [x] Add loading/empty/error states.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `feature: add capture library ui`.
 
 ## 2. In-app chunk search
 Description: Let users search captured chunks directly within the extension.
@@ -132,16 +132,6 @@ Desired result: Any entity/edge can be traced to source chunk evidence quickly.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `feature: add provenance inspector`.
 
-## 13. Per-site extraction rules
-Description: Improve extraction quality by allowing domain-specific tuning.
-Desired result: Users can override extraction behavior per site with safe rule definitions.
-- [ ] Define per-site rule model.
-- [ ] Add settings UI for rule management.
-- [ ] Implement default fallback when no rule exists.
-- [ ] Validate user-provided selectors/rules.
-- [ ] Add tests for precedence and fallback logic.
-- [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
-- [ ] Commit with a short message, e.g. `feature: add per-site extraction rules`.
 
 ## 14. Per-site storage profile
 Description: Support domain-specific storage preferences and capture behavior.
@@ -154,27 +144,6 @@ Desired result: Effective settings can vary by site while preserving global defa
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `feature: add per-site storage profiles`.
 
-## 15. Auto-capture mode
-Description: Let users automatically capture pages matching configured rules.
-Desired result: Reliable, rate-limited auto-capture workflow with clear status visibility.
-- [ ] Add rule engine for URL matching triggers.
-- [ ] Add dedupe and rate-limit protections.
-- [ ] Add global pause/resume control.
-- [ ] Add status reporting for last auto-capture action.
-- [ ] Add tests for trigger and throttling paths.
-- [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
-- [ ] Commit with a short message, e.g. `feature: add auto-capture mode`.
-
-## 16. YouTube language preferences
-Description: Improve transcript quality by honoring explicit language and caption preferences.
-Desired result: Track selection consistently reflects user language priorities and manual-caption preference.
-- [ ] Add language preference settings UI.
-- [ ] Add toggle to prefer manual captions.
-- [ ] Update track selection logic accordingly.
-- [ ] Persist diagnostics for track choice reason.
-- [ ] Add tests for language/track selection behavior.
-- [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
-- [ ] Commit with a short message, e.g. `feature: add youtube transcript language preferences`.
 
 ## 17. PDF page-aware chunking
 Description: Preserve page-level provenance for PDF-derived chunks and annotations.
@@ -199,7 +168,7 @@ Desired result: Users can trigger core annotation actions without opening contex
 - [ ] Commit with a short message, e.g. `feature: add annotation keyboard shortcuts`.
 
 ## 19. Annotation review workflow
-Description: Add a deliberate review step before final save for queued highlights/notes.
+Description: Add a deliberate review step before final save for queued highlights/notes. Should be optional through settings for users who prefer a more streamlined capture flow.
 Desired result: Users can curate annotation sets before persistence.
 - [ ] Add pre-save review panel/modal.
 - [ ] Allow edit/delete/reorder of queued annotations.
@@ -209,13 +178,15 @@ Desired result: Users can curate annotation sets before persistence.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `feature: add annotation review workflow`.
 
-## 20. Optional local embeddings + semantic search
-Description: Add semantic retrieval on top of chunked content for AI workflows.
-Desired result: Users can run relevance-based retrieval beyond keyword search.
-- [ ] Design embedding storage schema and metadata fields.
-- [ ] Add opt-in embedding generation pipeline.
-- [ ] Add semantic query API and UI mode.
-- [ ] Keep provider abstraction for local/external embedding engines.
-- [ ] Add benchmarks for latency and retrieval quality.
+## 20. Improve UI for highlighting and note-taking
+Description: Enhance the user interface for creating and managing highlights and notes to make it more intuitive and user-friendly.
+Desired result: Users can easily create, edit, and organize their highlights and notes with a more polished and responsive UI.
+- [ ] Redesign the highlight and note creation interface for better usability.
+- [ ] Add inline editing capabilities for highlights and notes.
+- [ ] Show in the text where highlights are located with better visual cues.
+- [ ] show in the text where notes are located with better visual cues.
+- [ ] Add options for categorizing and tagging highlights and notes.
+- [ ] Implement a more responsive design for different screen sizes.
+- [ ] Add tests for the new UI components and interactions.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
-- [ ] Commit with a short message, e.g. `feature: add semantic chunk retrieval`.
+- [ ] Commit with a short message, e.g. `feature: improve highlight and note UI`.

@@ -2,6 +2,7 @@ const statusLine = document.getElementById("statusLine");
 const saveSelectionButton = document.getElementById("saveSelectionButton");
 const saveTranscriptButton = document.getElementById("saveTranscriptButton");
 const saveTranscriptCommentButton = document.getElementById("saveTranscriptCommentButton");
+const openLibraryButton = document.getElementById("openLibraryButton");
 const openSettingsButton = document.getElementById("openSettingsButton");
 const shortcutHint = document.getElementById("shortcutHint");
 
@@ -123,6 +124,11 @@ saveTranscriptCommentButton.addEventListener("click", () => {
 
 openSettingsButton.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
+});
+
+openLibraryButton.addEventListener("click", () => {
+  const url = chrome.runtime.getURL("src/library.html");
+  chrome.tabs.create({ url });
 });
 
 refreshStatus().catch((error) => {

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Capture Library</title>
+    <link rel="stylesheet" href="./library.css" />
+  </head>
+  <body>
+    <main class="library-shell">
+      <header class="library-header">
+        <div>
+          <p class="eyebrow">Context Capture Saver</p>
+          <h1>Capture Library</h1>
+          <p class="lead">Browse saved captures with filters, sortable lists, and full capture context.</p>
+        </div>
+        <div class="header-actions">
+          <button id="refreshButton" type="button">Refresh</button>
+          <button id="openSettingsButton" class="ghost" type="button">Settings</button>
+        </div>
+      </header>
+
+      <section class="library-card filters">
+        <label class="field search-field">
+          <span>Search</span>
+          <input id="searchInput" type="search" placeholder="Search title, URL, site, or type" />
+        </label>
+
+        <label class="field">
+          <span>Type</span>
+          <select id="typeFilter">
+            <option value="">All types</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Site</span>
+          <select id="siteFilter">
+            <option value="">All sites</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>From date</span>
+          <input id="fromDateInput" type="date" />
+        </label>
+
+        <label class="field">
+          <span>To date</span>
+          <input id="toDateInput" type="date" />
+        </label>
+
+        <label class="field">
+          <span>Sort by</span>
+          <select id="sortFieldSelect">
+            <option value="savedAt">Saved time</option>
+            <option value="site">Site</option>
+            <option value="captureType">Capture type</option>
+            <option value="title">Title</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Direction</span>
+          <select id="sortDirectionSelect">
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Page size</span>
+          <select id="pageSizeSelect">
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="library-card status-row" id="statusRow" aria-live="polite"></section>
+
+      <section class="workspace">
+        <article class="library-card list-pane">
+          <header class="pane-header">
+            <h2>Captures</h2>
+            <p id="resultCount" class="muted">0 results</p>
+          </header>
+
+          <ul id="captureList" class="capture-list" aria-label="Capture list"></ul>
+          <p id="emptyListMessage" class="empty-message" hidden>No captures found for the current filters.</p>
+
+          <footer class="pagination">
+            <button id="prevPageButton" type="button" class="ghost">Previous</button>
+            <span id="pageLabel" class="muted">Page 1 of 1</span>
+            <button id="nextPageButton" type="button" class="ghost">Next</button>
+          </footer>
+        </article>
+
+        <article class="library-card detail-pane">
+          <header class="pane-header">
+            <h2>Capture Detail</h2>
+            <p id="detailMeta" class="muted">Select a capture to inspect details.</p>
+          </header>
+          <section id="detailContent" class="detail-content">
+            <p class="empty-message">No capture selected.</p>
+          </section>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="./library.js"></script>
+  </body>
+</html>
