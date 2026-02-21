@@ -245,6 +245,13 @@ Desired result: `npm run check` covers the complete runtime code surface.
 - [ ] Update contributor docs with check expectations.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `ci: expand syntax check coverage`.
+- [x] Update `check` script to include all non-vendor runtime files.
+- [x] Keep vendor bundles excluded.
+- [x] Add CI assertion for check coverage.
+- [x] Fail fast on stale script paths.
+- [x] Update contributor docs with check expectations.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `ci: expand syntax check coverage`.
 
 ## 17. Expand test coverage for orchestration paths
 Description: Cover high-risk runtime orchestration flows that are currently under-tested.

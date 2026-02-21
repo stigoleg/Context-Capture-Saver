@@ -178,6 +178,8 @@ npm run test:ci
 npm run build
 ```
 
+`npm run check` dynamically syntax-checks all non-vendor runtime modules under `src/`.
+
 ## Contributing
 
 1. Keep changes scoped.
