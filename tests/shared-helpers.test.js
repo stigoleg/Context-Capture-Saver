@@ -62,7 +62,15 @@ test("url and storage backend helpers normalize consistently", () => {
   assert.equal(normalizeStorageBackend("sqlite"), "sqlite");
   assert.equal(normalizeStorageBackend("invalid"), "json");
 
-  const writes = resolveStorageBackendWrites("both");
-  assert.equal(writes.writesJson, true);
-  assert.equal(writes.writesSqlite, true);
+  const jsonWrites = resolveStorageBackendWrites("json");
+  assert.equal(jsonWrites.writesJson, true);
+  assert.equal(jsonWrites.writesSqlite, false);
+
+  const sqliteWrites = resolveStorageBackendWrites("sqlite");
+  assert.equal(sqliteWrites.writesJson, false);
+  assert.equal(sqliteWrites.writesSqlite, true);
+
+  const bothWrites = resolveStorageBackendWrites("both");
+  assert.equal(bothWrites.writesJson, true);
+  assert.equal(bothWrites.writesSqlite, true);
 });

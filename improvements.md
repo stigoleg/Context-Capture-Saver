@@ -263,6 +263,13 @@ Desired result: Save orchestration, note queueing, and message workflows have re
 - [ ] Add tests for notes panel sync/delete behavior.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `test: add orchestration path coverage`.
+- [x] Add tests for JSON/SQLite/both save combinations.
+- [x] Add tests for pending annotation lifecycle.
+- [x] Add tests for background/content message handlers.
+- [x] Add tests for PDF fallback selection path.
+- [x] Add tests for notes panel sync/delete behavior.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `test: add orchestration path coverage`.
 
 ## 18. Add build/manifest validation tests
 Description: Ensure release artifacts are correct for both Chrome and Firefox builds.

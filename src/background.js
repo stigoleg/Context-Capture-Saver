@@ -24,6 +24,8 @@ import {
   runtimeSuccess,
   validateRuntimeMessage
 } from "./runtime-message-validation.js";
+import { createPendingAnnotationsStore } from "./pending-annotations.js";
+import { resolvePdfSelectionFromSources } from "./pdf-selection.js";
 import {
   ensureReadWritePermission,
   getSavedDirectoryHandle,
@@ -41,7 +43,7 @@ const COMMAND_SAVE_SELECTION_WITH_COMMENT = "COMMAND_SAVE_SELECTION_WITH_COMMENT
 const INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT = "INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT";
 
 const commentRequests = new Map();
-const pendingAnnotationsByTab = new Map();
+const pendingAnnotationsStore = createPendingAnnotationsStore();
 const OFFSCREEN_URL = chrome.runtime.getURL("src/offscreen.html");
 const START_NOTIFICATION_ID = "capture-start";
 const ERROR_NOTIFICATION_ID = "capture-error";
@@ -511,76 +513,23 @@ async function resolveSelection(tabId, selectionOverride = "", options = {}) {
 }
 
 function addPendingAnnotation(tabId, annotation) {
-  const existing = pendingAnnotationsByTab.get(tabId) || [];
-  const entry = {
-    id:
-      annotation?.id ||
-      (globalThis.crypto?.randomUUID
-        ? globalThis.crypto.randomUUID()
-        : `annotation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`),
-    selectedText: annotation?.selectedText ?? "",
-    comment: annotation?.comment ?? null,
-    createdAt: annotation?.createdAt || new Date().toISOString()
-  };
-  existing.push(entry);
-  pendingAnnotationsByTab.set(tabId, existing);
-  return {
-    count: existing.length,
-    annotation: entry
-  };
+  return pendingAnnotationsStore.add(tabId, annotation);
 }
 
 function removePendingAnnotation(tabId, annotationId) {
-  const existing = pendingAnnotationsByTab.get(tabId) || [];
-  if (!annotationId) {
-    return {
-      count: existing.length,
-      removed: false
-    };
-  }
-
-  const next = existing.filter((annotation) => annotation?.id !== annotationId);
-  const removed = next.length !== existing.length;
-  if (next.length > 0) {
-    pendingAnnotationsByTab.set(tabId, next);
-  } else {
-    pendingAnnotationsByTab.delete(tabId);
-  }
-
-  return {
-    count: next.length,
-    removed
-  };
+  return pendingAnnotationsStore.remove(tabId, annotationId);
 }
 
 function clearPendingAnnotations(tabId) {
-  pendingAnnotationsByTab.delete(tabId);
+  pendingAnnotationsStore.clear(tabId);
 }
 
 function getPendingAnnotationsSnapshot(tabId) {
-  const existing = pendingAnnotationsByTab.get(tabId) || [];
-  return existing.map((annotation) => {
-    if (!annotation.id) {
-      annotation.id = globalThis.crypto?.randomUUID
-        ? globalThis.crypto.randomUUID()
-        : `annotation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-    }
-    return {
-      id: annotation.id,
-      selectedText: annotation.selectedText ?? "",
-      comment: annotation.comment ?? null,
-      createdAt: annotation.createdAt || new Date().toISOString()
-    };
-  });
+  return pendingAnnotationsStore.snapshot(tabId);
 }
 
 function takePendingAnnotations(tabId) {
-  const existing = pendingAnnotationsByTab.get(tabId);
-  if (!existing || existing.length === 0) {
-    return [];
-  }
-  pendingAnnotationsByTab.delete(tabId);
-  return existing;
+  return pendingAnnotationsStore.take(tabId);
 }
 
 function normalizeTranscriptStorageMode(value) {
@@ -914,48 +863,13 @@ function errorMessage(error, fallback) {
   return error?.message || fallback;
 }
 
-function normalizeWhitespace(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
-}
-
-function selectionMatchesParts(selection, parts, normalize = false) {
-  if (!selection || !Array.isArray(parts)) {
-    return false;
-  }
-  for (const part of parts) {
-    if (!part) {
-      continue;
-    }
-    const haystack = normalize ? normalizeWhitespace(part) : part;
-    if (haystack.includes(selection)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 async function resolvePdfSelection(pdfData, selectedText) {
-  const trimmed = (selectedText || "").trim();
-  if (trimmed) {
-    return { text: trimmed, source: "selection" };
-  }
-
   const clipboard = await readClipboardTextViaOffscreen();
-  const clipTrimmed = (clipboard || "").trim();
-  if (!clipTrimmed) {
-    return { text: "", source: "none" };
-  }
-
-  if (selectionMatchesParts(clipTrimmed, pdfData?.documentTextParts)) {
-    return { text: clipTrimmed, source: "clipboard" };
-  }
-
-  const normalizedClip = normalizeWhitespace(clipTrimmed);
-  if (normalizedClip && selectionMatchesParts(normalizedClip, pdfData?.documentTextParts, true)) {
-    return { text: normalizedClip, source: "clipboard_normalized" };
-  }
-
-  return { text: "", source: "none" };
+  return resolvePdfSelectionFromSources({
+    selectedText,
+    clipboardText: clipboard,
+    documentTextParts: pdfData?.documentTextParts || []
+  });
 }
 
 async function saveRecord(record, options = {}) {
@@ -1746,13 +1660,13 @@ chrome.windows.onRemoved.addListener((windowId) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   cancelCaptureQueueForTab(tabId, "Capture cancelled because the tab was closed.");
-  pendingAnnotationsByTab.delete(tabId);
+  pendingAnnotationsStore.clear(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "loading") {
     cancelCaptureQueueForTab(tabId, "Capture cancelled because the page started loading.");
-    pendingAnnotationsByTab.delete(tabId);
+    pendingAnnotationsStore.clear(tabId);
     clearNotesPanel(tabId).catch(() => undefined);
   }
   if (changeInfo.url) {
