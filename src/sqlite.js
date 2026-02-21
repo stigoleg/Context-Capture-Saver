@@ -7,6 +7,7 @@ export const SQLITE_DB_SCHEMA_NAME = "graph_v5";
 const MAX_OFFSET_SCAN_CHARS = 200000;
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 200;
+const MAINTENANCE_INTERVAL_MS = 1000 * 60 * 60 * 24;
 const TRACKING_QUERY_PARAM_PREFIXES = ["utm_"];
 const TRACKING_QUERY_PARAM_NAMES = new Set([
   "fbclid",
@@ -643,6 +644,73 @@ function pruneOrphanGraphRows(db) {
     WHERE subject_type = 'edge'
       AND subject_id NOT IN (SELECT edge_id FROM edges);
   `);
+}
+
+function parseMaintenanceIntervalMs(value, fallback = MAINTENANCE_INTERVAL_MS) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+}
+
+function shouldRunMaintenance(db, nowIso, intervalMs, force = false) {
+  if (force) {
+    return true;
+  }
+  const nowMs = Date.parse(nowIso);
+  if (Number.isNaN(nowMs)) {
+    return true;
+  }
+  const lastMaintenanceAt = getMetaValue(db, "last_maintenance_at");
+  if (!lastMaintenanceAt) {
+    return true;
+  }
+  const lastMs = Date.parse(lastMaintenanceAt);
+  if (Number.isNaN(lastMs)) {
+    return true;
+  }
+  return nowMs - lastMs >= intervalMs;
+}
+
+export function runDatabaseMaintenance(db, options = {}) {
+  createMetaTable(db);
+  const nowIso = normalizeIsoTimestamp(options.nowIso);
+  const intervalMs = parseMaintenanceIntervalMs(options.intervalMs, MAINTENANCE_INTERVAL_MS);
+  const force = options.force === true;
+  const includeVacuum = options.vacuum === true;
+  const reason = normalizeNullableString(options.reason) || "auto";
+
+  if (!shouldRunMaintenance(db, nowIso, intervalMs, force)) {
+    return {
+      ran: false,
+      reason,
+      nowIso,
+      intervalMs,
+      mode: includeVacuum ? "analyze_vacuum" : "analyze"
+    };
+  }
+
+  const mode = includeVacuum ? "analyze_vacuum" : "analyze";
+  db.run("ANALYZE;");
+  if (includeVacuum) {
+    db.run("VACUUM;");
+  }
+
+  const result = {
+    ran: true,
+    reason,
+    at: nowIso,
+    mode,
+    intervalMs
+  };
+
+  setMetaValue(db, "maintenance_interval_ms", String(intervalMs));
+  setMetaValue(db, "last_maintenance_at", nowIso);
+  setMetaValue(db, "last_maintenance_mode", mode);
+  setMetaValue(db, "last_maintenance_reason", reason);
+  setMetaValue(db, "last_maintenance_result_json", encodeJson(result));
+  return result;
 }
 
 function hasFtsTable(db) {
@@ -2090,6 +2158,7 @@ export function migrateLegacyToV2(db) {
         chunk_indexes_backfilled: chunkIndexesBackfilled
       });
     }
+    runDatabaseMaintenance(db, { reason: "schema_ensure" });
     return 0;
   }
 
@@ -2140,6 +2209,7 @@ export function migrateLegacyToV2(db) {
       chunk_indexes_backfilled: chunkIndexesBackfilled
     });
     db.run("COMMIT;");
+    runDatabaseMaintenance(db, { reason: "legacy_migration" });
     return migrated;
   } catch (error) {
     try {
@@ -2196,6 +2266,7 @@ export function ensureSchemaV2(db) {
         chunk_indexes_backfilled: chunkIndexesBackfilled
       });
       db.run("COMMIT;");
+      runDatabaseMaintenance(db, { reason: "schema_upgrade" });
     } catch (error) {
       try {
         db.run("ROLLBACK;");
@@ -2208,6 +2279,8 @@ export function ensureSchemaV2(db) {
     // FTS may become available in a later runtime; backfill it when first created.
     rebuildFtsFromChunks(db);
   }
+
+  runDatabaseMaintenance(db, { reason: "schema_ensure" });
 
   if (!getMetaValue(db, "db_schema_name")) {
     setDbSchemaName(db, SQLITE_DB_SCHEMA_NAME);

@@ -14,6 +14,7 @@ import {
   getDocumentByUrl,
   getDocumentContext,
   migrateLegacyToV2,
+  runDatabaseMaintenance,
   saveRecordToDbV2,
   searchChunksByText
 } from "../src/sqlite.js";
@@ -828,6 +829,48 @@ test("ensureSchemaV2 keeps migration metadata stable on reopen when no migration
     assert.equal(afterMigrationId, beforeMigrationId);
     assert.equal(afterMigrationAt, beforeMigrationAt);
     assert.equal(afterHistory, beforeHistory);
+  } finally {
+    db.close();
+  }
+});
+
+test("runDatabaseMaintenance runs once per interval and persists meta fields", () => {
+  const db = new SQL.Database();
+  try {
+    ensureSchemaV2(db);
+
+    const first = runDatabaseMaintenance(db, {
+      nowIso: "2026-02-21T20:00:00.000Z",
+      intervalMs: 3600000,
+      force: true,
+      reason: "test"
+    });
+    assert.equal(first.ran, true);
+    assert.equal(scalar(db, `SELECT value FROM meta WHERE key = 'last_maintenance_mode';`), "analyze");
+    assert.equal(scalar(db, `SELECT value FROM meta WHERE key = 'last_maintenance_reason';`), "test");
+    assert.equal(
+      scalar(db, `SELECT value FROM meta WHERE key = 'maintenance_interval_ms';`),
+      String(3600000)
+    );
+    assert.equal(
+      scalar(db, `SELECT value FROM meta WHERE key = 'last_maintenance_result_json';`) !== null,
+      true
+    );
+
+    const skipped = runDatabaseMaintenance(db, {
+      nowIso: "2026-02-21T20:10:00.000Z",
+      intervalMs: 3600000,
+      reason: "test"
+    });
+    assert.equal(skipped.ran, false);
+
+    const second = runDatabaseMaintenance(db, {
+      nowIso: "2026-02-21T21:10:01.000Z",
+      intervalMs: 3600000,
+      reason: "test"
+    });
+    assert.equal(second.ran, true);
+    assert.equal(scalar(db, `SELECT value FROM meta WHERE key = 'last_maintenance_at';`), second.at);
   } finally {
     db.close();
   }

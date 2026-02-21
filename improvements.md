@@ -83,6 +83,13 @@ Desired result: Periodic maintenance improves query speed and prevents file bloa
 - [ ] Document maintenance behavior.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `sqlite: add maintenance routine`.
+- [x] Add maintenance helper for `ANALYZE` and optional `VACUUM`.
+- [x] Add maintenance metadata fields in `meta`.
+- [x] Trigger lightweight maintenance during safe upgrade points.
+- [x] Add guardrails to avoid running on every write.
+- [x] Document maintenance behavior.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `sqlite: add maintenance routine`.
 
 ## 8. Add retry policy for file writes
 Description: Improve resilience to transient file system write errors.

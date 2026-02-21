@@ -134,6 +134,7 @@ In Chrome, edit shortcuts in `chrome://extensions/shortcuts`.
 - Writes/updates a single `context-captures.sqlite` file in the selected folder.
 - Uses SQL.js (no external DB server).
 - Automatically upgrades legacy DBs in place.
+- Runs guarded maintenance (`ANALYZE`) during schema/open checks at a bounded interval, and stores maintenance metadata in `meta`.
 
 ### JSON + SQLite Mode
 
@@ -176,7 +177,7 @@ Core principles:
 
 ### Tables
 
-- `meta`: DB metadata (`db_schema_version`, migration/backfill flags, FTS availability).
+- `meta`: DB metadata (`db_schema_version`, migration/backfill flags, FTS availability, maintenance timestamps/mode/result).
 - `documents`: canonical source objects (`url`, title/site/language/published metadata).
 - `captures`: immutable-ish capture events (hashes, transcript payload, diagnostics, optional legacy payload).
 - `chunks`: agent-ready text units with offsets/type/provenance anchor.
