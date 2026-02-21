@@ -209,6 +209,13 @@ Desired result: Every runtime message is schema-validated with consistent error 
 - [ ] Remove implicit assumptions in handlers.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `hardening: validate runtime message payloads`.
+- [x] Define schema/type checks for all message types.
+- [x] Validate payloads before action dispatch.
+- [x] Return consistent structured error payloads.
+- [x] Add tests for malformed and unknown messages.
+- [x] Remove implicit assumptions in handlers.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `hardening: validate runtime message payloads`.
 
 ## 15. Increase type safety and stricter checks
 Description: Catch integration and nullability issues earlier with stronger static checking.

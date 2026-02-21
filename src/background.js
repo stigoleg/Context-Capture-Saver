@@ -20,6 +20,11 @@ import {
   supportsOffscreenApi
 } from "./runtime-capabilities.js";
 import {
+  runtimeError,
+  runtimeSuccess,
+  validateRuntimeMessage
+} from "./runtime-message-validation.js";
+import {
   ensureReadWritePermission,
   getSavedDirectoryHandle,
   writeJsonToDirectory
@@ -1811,10 +1816,24 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "GET_YT_PLAYER_RESPONSE") {
+  const validation = validateRuntimeMessage(message);
+  if (!validation.ok) {
+    sendResponse(runtimeError(validation.errorCode || "invalid_message", validation.error || "Invalid message"));
+    return true;
+  }
+
+  const payload = validation.message;
+  const sendRuntimeError = (code, error, fallbackMessage = "Request failed", details = null) => {
+    sendResponse(runtimeError(code, error?.message || fallbackMessage, details));
+  };
+  const sendRuntimeSuccess = (data = {}) => {
+    sendResponse(runtimeSuccess(data));
+  };
+
+  if (payload.type === "GET_YT_PLAYER_RESPONSE") {
     const tabId = sender?.tab?.id;
     if (!tabId) {
-      sendResponse({ ok: false, error: "No active tab" });
+      sendRuntimeError("no_active_tab", null, "No active tab");
       return true;
     }
 
@@ -1854,20 +1873,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .then((results) => {
         const value = Array.isArray(results) ? results[0]?.result : null;
-        sendResponse({ ok: true, playerResponse: value || null });
+        sendRuntimeSuccess({ playerResponse: value || null });
       })
       .catch((error) => {
-        sendResponse({ ok: false, error: error?.message || "Failed to read player response" });
+        sendRuntimeError("yt_player_response_failed", error, "Failed to read player response");
       });
     return true;
   }
 
-  if (message?.type === "YT_FETCH_TEXT") {
+  if (payload.type === "YT_FETCH_TEXT") {
     let allowedUrl = null;
     try {
-      allowedUrl = assertAllowedYouTubeFetchUrl(message.url);
+      allowedUrl = assertAllowedYouTubeFetchUrl(payload.url);
     } catch (error) {
-      sendResponse({ ok: false, error: error?.message || "Blocked fetch URL." });
+      sendRuntimeError("blocked_fetch_url", error, "Blocked fetch URL.");
       return true;
     }
 
@@ -1877,20 +1896,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error(`Fetch failed (${response.status})`);
         }
         const text = await response.text();
-        sendResponse({ ok: true, text });
+        sendRuntimeSuccess({ text });
       })
       .catch((error) => {
-        sendResponse({ ok: false, error: error?.message || "Fetch failed" });
+        sendRuntimeError("yt_fetch_text_failed", error, "Fetch failed");
       });
     return true;
   }
 
-  if (message?.type === "YT_FETCH_JSON") {
+  if (payload.type === "YT_FETCH_JSON") {
     let allowedUrl = null;
     try {
-      allowedUrl = assertAllowedYouTubeFetchUrl(message.url);
+      allowedUrl = assertAllowedYouTubeFetchUrl(payload.url);
     } catch (error) {
-      sendResponse({ ok: false, error: error?.message || "Blocked fetch URL." });
+      sendRuntimeError("blocked_fetch_url", error, "Blocked fetch URL.");
       return true;
     }
 
@@ -1900,117 +1919,106 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error(`Fetch failed (${response.status})`);
         }
         const json = await response.json();
-        sendResponse({ ok: true, json });
+        sendRuntimeSuccess({ json });
       })
       .catch((error) => {
-        sendResponse({ ok: false, error: error?.message || "Fetch failed" });
+        sendRuntimeError("yt_fetch_json_failed", error, "Fetch failed");
       });
     return true;
   }
 
-  if (message?.type === "RESOLVE_PDF_SELECTION") {
+  if (payload.type === "RESOLVE_PDF_SELECTION") {
     const tabId = sender?.tab?.id;
     if (!tabId) {
-      sendResponse({ ok: false, error: "No active tab" });
+      sendRuntimeError("no_active_tab", null, "No active tab");
       return true;
     }
 
     resolveSelection(tabId, "", {
       allowClipboardRead: false,
-      allowClipboardCopy: message.allowClipboardCopy === true
+      allowClipboardCopy: payload.allowClipboardCopy === true
     })
       .then((selectedText) => {
-        sendResponse({ ok: true, selectedText: selectedText || "" });
+        sendRuntimeSuccess({ selectedText: selectedText || "" });
       })
       .catch((error) => {
-        sendResponse({
-          ok: false,
-          error: error?.message || "Failed to resolve selection"
-        });
+        sendRuntimeError("resolve_pdf_selection_failed", error, "Failed to resolve selection");
       });
     return true;
   }
-  if (message?.type === "ADD_NOTE") {
+  if (payload.type === "ADD_NOTE") {
     const tabId = sender?.tab?.id;
     if (!tabId) {
-      sendResponse({ ok: false, error: "No active tab" });
+      sendRuntimeError("no_active_tab", null, "No active tab");
       return true;
     }
 
-    queueAnnotation(tabId, message.selectedText ?? "", message.comment ?? "")
+    queueAnnotation(tabId, payload.selectedText ?? "", payload.comment ?? "")
       .then((result) => {
         if (!result.count) {
-          sendResponse({ ok: false, error: "No selection to add." });
+          sendRuntimeError("empty_selection", null, "No selection to add.");
           return;
         }
-        sendResponse({
-          ok: true,
+        sendRuntimeSuccess({
           count: result.count,
           annotation: result.annotation,
           annotations: result.annotations
         });
       })
-      .catch((error) =>
-        sendResponse({ ok: false, error: error?.message || "Failed to add note" })
-      );
+      .catch((error) => sendRuntimeError("add_note_failed", error, "Failed to add note"));
     return true;
   }
 
-  if (message?.type === "GET_PENDING_NOTES") {
+  if (payload.type === "GET_PENDING_NOTES") {
     const tabId = sender?.tab?.id;
     if (!tabId) {
-      sendResponse({ ok: false, error: "No active tab" });
+      sendRuntimeError("no_active_tab", null, "No active tab");
       return true;
     }
     const annotations = getPendingAnnotationsSnapshot(tabId);
-    sendResponse({ ok: true, count: annotations.length, annotations });
+    sendRuntimeSuccess({ count: annotations.length, annotations });
     return true;
   }
 
-  if (message?.type === "REMOVE_PENDING_NOTE") {
+  if (payload.type === "REMOVE_PENDING_NOTE") {
     const tabId = sender?.tab?.id;
     if (!tabId) {
-      sendResponse({ ok: false, error: "No active tab" });
+      sendRuntimeError("no_active_tab", null, "No active tab");
       return true;
     }
 
-    const result = removePendingAnnotation(tabId, message.annotationId || null);
+    const result = removePendingAnnotation(tabId, payload.annotationId || null);
     notifyNotesUpdated(tabId)
       .then(() => {
         const annotations = getPendingAnnotationsSnapshot(tabId);
-        sendResponse({
-          ok: true,
+        sendRuntimeSuccess({
           removed: result.removed,
           count: annotations.length,
           annotations
         });
       })
-      .catch((error) =>
-        sendResponse({ ok: false, error: error?.message || "Failed to remove note" })
-      );
+      .catch((error) => sendRuntimeError("remove_note_failed", error, "Failed to remove note"));
     return true;
   }
 
-  if (message?.type === "CLEAR_PENDING_NOTES_STATE") {
+  if (payload.type === "CLEAR_PENDING_NOTES_STATE") {
     const tabId = sender?.tab?.id;
     if (!tabId) {
-      sendResponse({ ok: false, error: "No active tab" });
+      sendRuntimeError("no_active_tab", null, "No active tab");
       return true;
     }
     clearPendingAnnotations(tabId);
     notifyNotesUpdated(tabId)
-      .then(() => sendResponse({ ok: true, count: 0, annotations: [] }))
-      .catch((error) =>
-        sendResponse({ ok: false, error: error?.message || "Failed to clear notes" })
-      );
+      .then(() => sendRuntimeSuccess({ count: 0, annotations: [] }))
+      .catch((error) => sendRuntimeError("clear_notes_failed", error, "Failed to clear notes"));
     return true;
   }
 
-  if (message?.type === "COMMENT_SUBMIT") {
-    const requestId = message.requestId;
+  if (payload.type === "COMMENT_SUBMIT") {
+    const requestId = payload.requestId;
     const entry = commentRequests.get(requestId);
     if (!entry) {
-      sendResponse({ ok: false, error: "Unknown request" });
+      sendRuntimeError("unknown_request", null, "Unknown request");
       return true;
     }
 
@@ -2019,56 +2027,57 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.windows.remove(entry.windowId).catch(() => undefined);
     }
 
-    if (message.cancelled) {
+    if (payload.cancelled) {
       entry.resolve(null);
     } else {
-      entry.resolve(message.comment ?? "");
+      entry.resolve(payload.comment ?? "");
     }
 
-    sendResponse({ ok: true });
+    sendRuntimeSuccess();
     return true;
   }
 
-  if (message?.type === "GET_LAST_CAPTURE_STATUS") {
+  if (payload.type === "GET_LAST_CAPTURE_STATUS") {
     getLastCaptureStatus()
-      .then((status) => sendResponse({ ok: true, status }))
-      .catch((error) => sendResponse({ ok: false, error: error?.message || "Failed to load status" }));
+      .then((status) => sendRuntimeSuccess({ status }))
+      .catch((error) => sendRuntimeError("status_load_failed", error, "Failed to load status"));
     return true;
   }
 
-  if (message?.type === "RUN_CAPTURE") {
+  if (payload.type === "RUN_CAPTURE") {
     getActiveTab()
       .then(async (tab) => {
         if (!tab?.id) {
           throw new Error("No active tab");
         }
 
-        if (message.kind === "selection") {
+        if (payload.kind === "selection") {
           return queueCaptureAction("COMMAND_SAVE_SELECTION", tab.id);
         }
 
-        if (message.kind === "selection_with_comment") {
+        if (payload.kind === "selection_with_comment") {
           return queueCaptureAction("COMMAND_SAVE_SELECTION_WITH_COMMENT", tab.id);
         }
 
-        if (message.kind === "selection_with_highlight") {
+        if (payload.kind === "selection_with_highlight") {
           return queueCaptureAction(INTERNAL_SAVE_SELECTION_WITH_HIGHLIGHT, tab.id);
         }
 
-        if (message.kind === "youtube_transcript") {
+        if (payload.kind === "youtube_transcript") {
           return queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT, tab.id);
         }
 
-        if (message.kind === "youtube_transcript_with_comment") {
+        if (payload.kind === "youtube_transcript_with_comment") {
           return queueCaptureAction(MENU_SAVE_YOUTUBE_TRANSCRIPT_WITH_COMMENT, tab.id);
         }
 
         throw new Error("Unknown capture type");
       })
-      .then((result) => sendResponse(result || { ok: false, error: "No result" }))
-      .catch((error) => sendResponse({ ok: false, error: error?.message || "Capture failed" }));
+      .then((result) => sendResponse(result || runtimeError("no_result", "No result")))
+      .catch((error) => sendRuntimeError("capture_failed", error, "Capture failed"));
     return true;
   }
 
-  return undefined;
+  sendRuntimeError("unknown_type", null, "Unknown message type");
+  return true;
 });
