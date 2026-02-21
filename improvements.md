@@ -155,6 +155,13 @@ Desired result: Shared helper functions are centralized and reused consistently.
 - [ ] Add unit tests for shared helpers.
 - [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
 - [ ] Commit with a short message, e.g. `refactor: centralize shared helpers`.
+- [x] Extract shared URL helpers into common module.
+- [x] Extract shared folder/path formatting helpers.
+- [x] Extract shared bubble settings normalization.
+- [x] Replace duplicated local implementations.
+- [x] Add unit tests for shared helpers.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `refactor: centralize shared helpers`.
 
 ## 12. Harden Firefox-specific fallbacks
 Description: Ensure behavior is robust when Chrome-specific APIs are unavailable in Firefox.

@@ -7,6 +7,9 @@ import {
   DEFAULT_BUBBLE_MENU_ORDER,
   DEFAULT_SETTINGS,
   getSettings,
+  normalizeBubbleMenuActions,
+  normalizeBubbleMenuLayout,
+  normalizeBubbleMenuStyle,
   saveSettings
 } from "./settings.js";
 import {
@@ -16,6 +19,8 @@ import {
   saveDirectoryHandle,
   writeJsonToDirectory
 } from "./storage.js";
+import { buildJsonSubdirectories, formatStoredPath } from "./json-paths.js";
+import { resolveStorageBackendWrites } from "./storage-backend.js";
 
 const BUBBLE_MENU_ACTION_META = {
   save_content: {
@@ -117,8 +122,6 @@ let currentDropSlot = null;
 let autoSaveTimer = 0;
 let toastTimer = 0;
 
-const JSON_OUTPUT_ROOT_DIR = "json";
-
 function errorMessage(error, fallback) {
   return error?.message || fallback;
 }
@@ -146,35 +149,6 @@ function showSettingsToast(text, isError = false, autoHideMs = 2400) {
       toastTimer = 0;
     }, autoHideMs);
   }
-}
-
-function normalizeBubbleSettings(orderInput, enabledInput) {
-  const order = Array.isArray(orderInput) ? orderInput.filter((value) => BUBBLE_MENU_ACTIONS.includes(value)) : [];
-  const normalizedOrder = order.length ? [...order] : [...DEFAULT_BUBBLE_MENU_ORDER];
-  for (const action of BUBBLE_MENU_ACTIONS) {
-    if (!normalizedOrder.includes(action)) {
-      normalizedOrder.push(action);
-    }
-  }
-
-  const enabled = Array.isArray(enabledInput)
-    ? enabledInput.filter((value) => BUBBLE_MENU_ACTIONS.includes(value))
-    : [];
-  const normalizedEnabled = enabled.length ? [...enabled] : [...DEFAULT_BUBBLE_MENU_ENABLED];
-  const dedupedEnabled = [];
-  for (const action of normalizedEnabled) {
-    if (!dedupedEnabled.includes(action)) {
-      dedupedEnabled.push(action);
-    }
-  }
-  if (!dedupedEnabled.length) {
-    dedupedEnabled.push("save_content");
-  }
-
-  return {
-    order: normalizedOrder,
-    enabled: dedupedEnabled
-  };
 }
 
 function isActionEnabled(action) {
@@ -414,9 +388,7 @@ async function refreshStatus() {
 
 async function refreshCaptureSettings() {
   const settings = await getSettings();
-  const backend = settings.storageBackend === "sqlite" || settings.storageBackend === "both"
-    ? settings.storageBackend
-    : "json";
+  const { storageBackend: backend } = resolveStorageBackendWrites(settings.storageBackend);
   storageBackendJson.checked = backend === "json";
   storageBackendSqlite.checked = backend === "sqlite";
   storageBackendBoth.checked = backend === "both";
@@ -433,16 +405,16 @@ async function refreshCaptureSettings() {
   );
   setRadioValue(
     bubbleLayoutInputs,
-    normalizeBubbleLayout(settings.bubbleMenuLayout),
+    normalizeBubbleMenuLayout(settings.bubbleMenuLayout),
     DEFAULT_SETTINGS.bubbleMenuLayout
   );
   setRadioValue(
     bubbleStyleInputs,
-    normalizeBubbleStyle(settings.bubbleMenuStyle),
+    normalizeBubbleMenuStyle(settings.bubbleMenuStyle),
     DEFAULT_SETTINGS.bubbleMenuStyle
   );
 
-  const bubble = normalizeBubbleSettings(settings.bubbleMenuOrder, settings.bubbleMenuEnabled);
+  const bubble = normalizeBubbleMenuActions(settings.bubbleMenuOrder, settings.bubbleMenuEnabled);
   bubbleState.order = bubble.order;
   bubbleState.enabled = bubble.enabled;
   renderBubbleMenuOptions();
@@ -508,20 +480,6 @@ function normalizeTranscriptStorageMode(value) {
   return "document_text";
 }
 
-function normalizeBubbleStyle(value) {
-  if (BUBBLE_MENU_STYLES.includes(value)) {
-    return value;
-  }
-  return DEFAULT_SETTINGS.bubbleMenuStyle;
-}
-
-function normalizeBubbleLayout(value) {
-  if (BUBBLE_MENU_LAYOUTS.includes(value)) {
-    return value;
-  }
-  return DEFAULT_SETTINGS.bubbleMenuLayout;
-}
-
 function setRadioValue(inputs, value, fallback) {
   const normalized = value || fallback;
   let matched = false;
@@ -542,7 +500,7 @@ function getCheckedRadioValue(inputs, fallback) {
 }
 
 async function persistCaptureSettings() {
-  const normalizedBubble = normalizeBubbleSettings(bubbleState.order, bubbleState.enabled);
+  const normalizedBubble = normalizeBubbleMenuActions(bubbleState.order, bubbleState.enabled);
   const nextSettings = {
     compressLargeText: compressLargeTextInput.checked,
     compressionThresholdChars: clampNumber(
@@ -555,10 +513,10 @@ async function persistCaptureSettings() {
     youtubeTranscriptStorageMode: normalizeTranscriptStorageMode(
       youtubeTranscriptStorageModeSelect.value
     ),
-    bubbleMenuLayout: normalizeBubbleLayout(
+    bubbleMenuLayout: normalizeBubbleMenuLayout(
       getCheckedRadioValue(bubbleLayoutInputs, DEFAULT_SETTINGS.bubbleMenuLayout)
     ),
-    bubbleMenuStyle: normalizeBubbleStyle(
+    bubbleMenuStyle: normalizeBubbleMenuStyle(
       getCheckedRadioValue(bubbleStyleInputs, DEFAULT_SETTINGS.bubbleMenuStyle)
     ),
     organizeByDate: organizeByDateInput.checked,
@@ -724,12 +682,7 @@ async function testWrite() {
     });
 
     const settings = await getSettings();
-    const storageBackend =
-      settings.storageBackend === "sqlite" || settings.storageBackend === "both"
-        ? settings.storageBackend
-        : "json";
-    const writesSqlite = storageBackend === "sqlite" || storageBackend === "both";
-    const writesJson = storageBackend === "json" || storageBackend === "both";
+    const { writesJson, writesSqlite } = resolveStorageBackendWrites(settings.storageBackend);
 
     if (writesJson && settings.includeJsonChunks) {
       const { buildJsonChunksForRecord } = await import("./sqlite-write.js");
@@ -810,49 +763,6 @@ async function testWrite() {
   } catch (error) {
     setStatus(`Test write failed: ${error?.message || "Unknown error"}`, true);
   }
-}
-
-function slugifySegment(input) {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
-function formatDateSegment(isoString) {
-  const date = new Date(isoString);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate()
-  ).padStart(2, "0")}`;
-}
-
-function buildJsonSubdirectories(record, settings) {
-  const subdirectories = [JSON_OUTPUT_ROOT_DIR];
-  const dateSegment = settings.organizeByDate ? formatDateSegment(record.savedAt) : null;
-  const typeSegment = settings.organizeByType
-    ? slugifySegment(record.captureType || "capture") || "capture"
-    : null;
-  const order = settings.organizeOrder === "date_type" ? "date_type" : "type_date";
-  if (order === "date_type") {
-    if (dateSegment) {
-      subdirectories.push(dateSegment);
-    }
-    if (typeSegment) {
-      subdirectories.push(typeSegment);
-    }
-  } else {
-    if (typeSegment) {
-      subdirectories.push(typeSegment);
-    }
-    if (dateSegment) {
-      subdirectories.push(dateSegment);
-    }
-  }
-  return subdirectories;
 }
 
 async function clearFolder() {

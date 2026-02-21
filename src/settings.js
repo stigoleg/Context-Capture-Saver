@@ -1,28 +1,30 @@
-export const BUBBLE_MENU_ACTIONS = [
-  "save_content",
-  "save_content_with_highlight",
-  "save_content_with_note",
-  "highlight",
-  "highlight_with_note"
-];
+import {
+  BUBBLE_MENU_ACTIONS,
+  BUBBLE_MENU_LAYOUTS,
+  BUBBLE_MENU_STYLES,
+  DEFAULT_BUBBLE_MENU_LAYOUT,
+  DEFAULT_BUBBLE_MENU_STYLE,
+  DEFAULT_BUBBLE_MENU_ENABLED,
+  DEFAULT_BUBBLE_MENU_ORDER,
+  normalizeBubbleMenuActions,
+  normalizeBubbleMenuLayout,
+  normalizeBubbleMenuStyle
+} from "./bubble-settings.js";
+import { STORAGE_BACKENDS, normalizeStorageBackend } from "./storage-backend.js";
 
-export const DEFAULT_BUBBLE_MENU_ORDER = [
-  "save_content",
-  "save_content_with_highlight",
-  "highlight",
-  "highlight_with_note",
-  "save_content_with_note"
-];
-
-export const DEFAULT_BUBBLE_MENU_ENABLED = [
-  "save_content",
-  "highlight",
-  "highlight_with_note"
-];
-
-export const BUBBLE_MENU_STYLES = ["glass", "clean", "midnight"];
-export const BUBBLE_MENU_LAYOUTS = ["horizontal", "vertical"];
-export const STORAGE_BACKENDS = ["json", "sqlite", "both"];
+export {
+  BUBBLE_MENU_ACTIONS,
+  BUBBLE_MENU_LAYOUTS,
+  BUBBLE_MENU_STYLES,
+  DEFAULT_BUBBLE_MENU_LAYOUT,
+  DEFAULT_BUBBLE_MENU_STYLE,
+  DEFAULT_BUBBLE_MENU_ENABLED,
+  DEFAULT_BUBBLE_MENU_ORDER,
+  normalizeBubbleMenuActions,
+  normalizeBubbleMenuLayout,
+  normalizeBubbleMenuStyle,
+  STORAGE_BACKENDS
+};
 
 export const DEFAULT_SETTINGS = {
   maxDocumentChars: 0,
@@ -35,8 +37,8 @@ export const DEFAULT_SETTINGS = {
   organizeByDate: false,
   organizeByType: false,
   organizeOrder: "type_date",
-  bubbleMenuLayout: "horizontal",
-  bubbleMenuStyle: "glass",
+  bubbleMenuLayout: DEFAULT_BUBBLE_MENU_LAYOUT,
+  bubbleMenuStyle: DEFAULT_BUBBLE_MENU_STYLE,
   bubbleMenuOrder: [...DEFAULT_BUBBLE_MENU_ORDER],
   bubbleMenuEnabled: [...DEFAULT_BUBBLE_MENU_ENABLED]
 };
@@ -44,37 +46,12 @@ export const DEFAULT_SETTINGS = {
 const SETTINGS_KEY = "captureSettings";
 const STATUS_KEY = "lastCaptureStatus";
 
-function sanitizeActionList(input) {
-  const incoming = Array.isArray(input) ? input : [];
-  const filtered = incoming.filter((value) => BUBBLE_MENU_ACTIONS.includes(value));
-  const deduped = [];
-  for (const value of filtered) {
-    if (!deduped.includes(value)) {
-      deduped.push(value);
-    }
-  }
-  return deduped;
-}
-
 function normalizeBubbleSettings(input) {
-  const orderFromInput = sanitizeActionList(input?.bubbleMenuOrder);
-  const order = orderFromInput.length ? [...orderFromInput] : [...DEFAULT_BUBBLE_MENU_ORDER];
-  for (const action of BUBBLE_MENU_ACTIONS) {
-    if (!order.includes(action)) {
-      order.push(action);
-    }
-  }
-
-  const enabledFromInput = sanitizeActionList(input?.bubbleMenuEnabled);
-  const enabled = enabledFromInput.length ? enabledFromInput : [...DEFAULT_BUBBLE_MENU_ENABLED];
-  const enabledInOrder = enabled.filter((action) => order.includes(action));
-  if (!enabledInOrder.length) {
-    enabledInOrder.push("save_content");
-  }
+  const normalized = normalizeBubbleMenuActions(input?.bubbleMenuOrder, input?.bubbleMenuEnabled);
 
   return {
-    bubbleMenuOrder: order,
-    bubbleMenuEnabled: enabledInOrder
+    bubbleMenuOrder: normalized.order,
+    bubbleMenuEnabled: normalized.enabled
   };
 }
 
@@ -83,16 +60,19 @@ function normalizeSettings(input) {
     ...DEFAULT_SETTINGS,
     ...(input || {})
   };
-  const storageBackend = STORAGE_BACKENDS.includes(merged.storageBackend)
-    ? merged.storageBackend
-    : DEFAULT_SETTINGS.storageBackend;
+  const storageBackend = normalizeStorageBackend(
+    merged.storageBackend,
+    DEFAULT_SETTINGS.storageBackend
+  );
   const bubble = normalizeBubbleSettings(merged);
-  const bubbleMenuLayout = BUBBLE_MENU_LAYOUTS.includes(merged.bubbleMenuLayout)
-    ? merged.bubbleMenuLayout
-    : DEFAULT_SETTINGS.bubbleMenuLayout;
-  const bubbleMenuStyle = BUBBLE_MENU_STYLES.includes(merged.bubbleMenuStyle)
-    ? merged.bubbleMenuStyle
-    : DEFAULT_SETTINGS.bubbleMenuStyle;
+  const bubbleMenuLayout = normalizeBubbleMenuLayout(
+    merged.bubbleMenuLayout,
+    DEFAULT_SETTINGS.bubbleMenuLayout
+  );
+  const bubbleMenuStyle = normalizeBubbleMenuStyle(
+    merged.bubbleMenuStyle,
+    DEFAULT_SETTINGS.bubbleMenuStyle
+  );
   return {
     ...merged,
     storageBackend,

@@ -10,6 +10,9 @@ import { SaveOperationQueue, createAbortErrorForQueue } from "./save-queue.js";
 import { getLastCaptureStatus, getSettings, setLastCaptureStatus } from "./settings.js";
 import { buildJsonChunksForRecord, saveRecordToSqlite } from "./sqlite-write.js";
 import { assertAllowedYouTubeFetchUrl } from "./url-guards.js";
+import { isYouTubeVideoUrl } from "./url-helpers.js";
+import { buildJsonSubdirectories, formatStoredPath } from "./json-paths.js";
+import { resolveStorageBackendWrites } from "./storage-backend.js";
 import {
   ensureReadWritePermission,
   getSavedDirectoryHandle,
@@ -31,7 +34,6 @@ const pendingAnnotationsByTab = new Map();
 const OFFSCREEN_URL = chrome.runtime.getURL("src/offscreen.html");
 const START_NOTIFICATION_ID = "capture-start";
 const ERROR_NOTIFICATION_ID = "capture-error";
-const JSON_OUTPUT_ROOT_DIR = "json";
 const CAPTURE_QUEUE_TIMEOUT_MS = 120000;
 
 const captureQueue = new SaveOperationQueue({
@@ -167,42 +169,7 @@ function getActiveTab() {
 }
 
 function isYouTubeUrl(rawUrl) {
-  if (!rawUrl) {
-    return false;
-  }
-  try {
-    const url = new URL(rawUrl);
-    const hostname = url.hostname.toLowerCase();
-
-    if (hostname === "youtu.be") {
-      const shortId = url.pathname.split("/").filter(Boolean)[0] || "";
-      return Boolean(shortId);
-    }
-
-    if (!(hostname === "youtube.com" || hostname.endsWith(".youtube.com"))) {
-      return false;
-    }
-
-    if (url.pathname === "/watch") {
-      return Boolean(url.searchParams.get("v"));
-    }
-
-    if (url.pathname.startsWith("/shorts/")) {
-      return Boolean(url.pathname.split("/")[2]);
-    }
-
-    if (url.pathname.startsWith("/live/")) {
-      return Boolean(url.pathname.split("/")[2]);
-    }
-
-    if (url.pathname.startsWith("/embed/")) {
-      return Boolean(url.pathname.split("/")[2]);
-    }
-
-    return false;
-  } catch (_error) {
-    return false;
-  }
+  return isYouTubeVideoUrl(rawUrl);
 }
 
 async function setBadge(tabId, text, color) {
@@ -918,61 +885,6 @@ async function copySelectionFromPage(tabId) {
   }
 }
 
-function slugifySegment(input) {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
-function formatDateFolder(isoString) {
-  const date = new Date(isoString);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function buildSubdirectories(record, settings) {
-  const segments = [JSON_OUTPUT_ROOT_DIR];
-  const typeSegment = settings.organizeByType
-    ? slugifySegment(record.captureType || "capture") || "capture"
-    : null;
-  const dateSegment = settings.organizeByDate ? formatDateFolder(record.savedAt) : null;
-  const order = settings.organizeOrder === "date_type" ? "date_type" : "type_date";
-
-  if (order === "date_type") {
-    if (dateSegment) {
-      segments.push(dateSegment);
-    }
-    if (typeSegment) {
-      segments.push(typeSegment);
-    }
-  } else {
-    if (typeSegment) {
-      segments.push(typeSegment);
-    }
-    if (dateSegment) {
-      segments.push(dateSegment);
-    }
-  }
-
-  return segments;
-}
-
-function formatStoredPath(fileName, subdirectories) {
-  if (!subdirectories || subdirectories.length === 0) {
-    return fileName;
-  }
-
-  return `${subdirectories.join("/")}/${fileName}`;
-}
-
 function errorMessage(error, fallback) {
   return error?.message || fallback;
 }
@@ -1041,12 +953,7 @@ async function saveRecord(record, options = {}) {
   }
   throwIfAborted(signal);
 
-  const storageBackend =
-    settings.storageBackend === "sqlite" || settings.storageBackend === "both"
-      ? settings.storageBackend
-      : "json";
-  const writesSqlite = storageBackend === "sqlite" || storageBackend === "both";
-  const writesJson = storageBackend === "json" || storageBackend === "both";
+  const { writesJson, writesSqlite } = resolveStorageBackendWrites(settings.storageBackend);
 
   let processed = await applyContentPolicies(record, settings);
   processed = applyAnnotationPolicies(processed, {
@@ -1085,7 +992,7 @@ async function saveRecord(record, options = {}) {
   if (writesJson) {
     throwIfAborted(signal);
     const fileName = buildFileName(processed);
-    const subdirectories = buildSubdirectories(processed, settings);
+    const subdirectories = buildJsonSubdirectories(processed, settings);
     try {
       await writeJsonToDirectory(directoryHandle, fileName, processed, subdirectories);
       jsonStoredPath = formatStoredPath(fileName, subdirectories);

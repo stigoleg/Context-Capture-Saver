@@ -1,4 +1,14 @@
 import { getPageMetadata } from "./content-metadata.js";
+import {
+  BUBBLE_MENU_LAYOUTS,
+  BUBBLE_MENU_STYLES,
+  DEFAULT_BUBBLE_MENU_ENABLED,
+  DEFAULT_BUBBLE_MENU_LAYOUT,
+  DEFAULT_BUBBLE_MENU_ORDER,
+  DEFAULT_BUBBLE_MENU_STYLE,
+  normalizeBubbleMenuConfig
+} from "./bubble-settings.js";
+import { parseYouTubeVideoId } from "./url-helpers.js";
 
 function normalizeText(value) {
   return (value || "").replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -944,24 +954,6 @@ const supportsCssHighlights = typeof globalThis.Highlight === "function" && Bool
 const pendingAnnotationPreviews = new Map();
 const pendingAnnotationSnapshot = new Map();
 
-const DEFAULT_BUBBLE_MENU_ORDER = [
-  "save_content",
-  "save_content_with_highlight",
-  "highlight",
-  "highlight_with_note",
-  "save_content_with_note"
-];
-
-const DEFAULT_BUBBLE_MENU_ENABLED = [
-  "save_content",
-  "highlight",
-  "highlight_with_note"
-];
-const BUBBLE_MENU_LAYOUTS = ["horizontal", "vertical"];
-const DEFAULT_BUBBLE_MENU_LAYOUT = "horizontal";
-const BUBBLE_MENU_STYLES = ["glass", "clean", "midnight"];
-const DEFAULT_BUBBLE_MENU_STYLE = "glass";
-
 const BUBBLE_ACTION_META = {
   save_content: {
     label: "Save content",
@@ -1004,47 +996,6 @@ const bubbleMenuConfig = {
   layout: DEFAULT_BUBBLE_MENU_LAYOUT,
   style: DEFAULT_BUBBLE_MENU_STYLE
 };
-
-function normalizeBubbleMenuConfig(raw) {
-  const validKeys = Object.keys(BUBBLE_ACTION_META);
-  const orderInput = Array.isArray(raw?.bubbleMenuOrder) ? raw.bubbleMenuOrder : [];
-  const enabledInput = Array.isArray(raw?.bubbleMenuEnabled) ? raw.bubbleMenuEnabled : [];
-
-  const order = [];
-  for (const key of orderInput) {
-    if (validKeys.includes(key) && !order.includes(key)) {
-      order.push(key);
-    }
-  }
-  if (!order.length) {
-    order.push(...DEFAULT_BUBBLE_MENU_ORDER);
-  } else {
-    for (const key of validKeys) {
-      if (!order.includes(key)) {
-        order.push(key);
-      }
-    }
-  }
-
-  const enabled = [];
-  for (const key of enabledInput) {
-    if (order.includes(key) && !enabled.includes(key)) {
-      enabled.push(key);
-    }
-  }
-  if (!enabled.length) {
-    enabled.push(...DEFAULT_BUBBLE_MENU_ENABLED);
-  }
-
-  const style = BUBBLE_MENU_STYLES.includes(raw?.bubbleMenuStyle)
-    ? raw.bubbleMenuStyle
-    : DEFAULT_BUBBLE_MENU_STYLE;
-  const layout = BUBBLE_MENU_LAYOUTS.includes(raw?.bubbleMenuLayout)
-    ? raw.bubbleMenuLayout
-    : DEFAULT_BUBBLE_MENU_LAYOUT;
-
-  return { order, enabled, layout, style };
-}
 
 async function loadBubbleMenuConfig() {
   try {
@@ -2684,38 +2635,7 @@ if (isPdfPage()) {
 }
 
 function getYouTubeVideoId() {
-  try {
-    const url = new URL(window.location.href);
-    const hostname = (url.hostname || "").toLowerCase();
-
-    if (hostname === "youtu.be") {
-      return url.pathname.split("/").filter(Boolean)[0] || null;
-    }
-
-    if (!(hostname === "youtube.com" || hostname.endsWith(".youtube.com"))) {
-      return null;
-    }
-
-    if (url.pathname === "/watch") {
-      return url.searchParams.get("v");
-    }
-
-    if (url.pathname.startsWith("/shorts/")) {
-      return url.pathname.split("/")[2] || null;
-    }
-
-    if (url.pathname.startsWith("/live/")) {
-      return url.pathname.split("/")[2] || null;
-    }
-
-    if (url.pathname.startsWith("/embed/")) {
-      return url.pathname.split("/")[2] || null;
-    }
-
-    return null;
-  } catch (_error) {
-    return null;
-  }
+  return parseYouTubeVideoId(window.location.href);
 }
 
 function sleep(ms) {
