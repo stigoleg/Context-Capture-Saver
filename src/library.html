@@ -100,7 +100,10 @@
         <article class="library-card detail-pane">
           <header class="pane-header">
             <h2>Capture Detail</h2>
-            <p id="detailMeta" class="muted">Select a capture to inspect details.</p>
+            <div class="detail-header-actions">
+              <button id="openContextButton" type="button" class="ghost">Document context</button>
+              <p id="detailMeta" class="muted">Select a capture to inspect details.</p>
+            </div>
           </header>
           <section id="detailContent" class="detail-content">
             <p class="empty-message">No capture selected.</p>
@@ -120,6 +123,20 @@
           </label>
         </div>
         <ul id="chunkSearchResults" class="chunk-search-results" aria-label="Chunk search results"></ul>
+      </section>
+
+      <section id="documentContextPane" class="library-card context-pane" hidden>
+        <header class="pane-header">
+          <h2>Document Context</h2>
+          <div class="context-actions">
+            <button id="copyContextButton" class="ghost" type="button">Copy JSON</button>
+            <button id="exportContextButton" class="ghost" type="button">Export JSON</button>
+            <button id="closeContextButton" class="ghost" type="button">Close</button>
+          </div>
+        </header>
+        <section id="documentContextContent" class="detail-content">
+          <p class="empty-message">Select a capture and open document context.</p>
+        </section>
       </section>
     </main>
 

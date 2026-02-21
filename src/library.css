@@ -200,6 +200,26 @@ button.ghost {
   font-size: 16px;
 }
 
+.detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.context-pane {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 220px;
+}
+
+.context-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .capture-list {
   margin: 0;
   padding: 10px;

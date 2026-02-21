@@ -25,13 +25,13 @@ Desired result: Fast chunk search with FTS-first strategy and graceful fallback.
 ## 3. Document context view
 Description: Expose full context for a document (captures, chunks, graph links) in one screen.
 Desired result: Users can inspect complete provenance-aware context for any document.
-- [ ] Add document context route/view.
-- [ ] Show grouped chunks by type.
-- [ ] Show associated captures and timestamps.
-- [ ] Show related entities/edges when available.
-- [ ] Add copy/export actions from context view.
-- [ ] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
-- [ ] Commit with a short message, e.g. `feature: add document context page`.
+- [x] Add document context route/view.
+- [x] Show grouped chunks by type.
+- [x] Show associated captures and timestamps.
+- [x] Show related entities/edges when available.
+- [x] Add copy/export actions from context view.
+- [x] Run `npm run check`, `npm run typecheck`, and `npm test`; resolve failures.
+- [x] Commit with a short message, e.g. `feature: add document context page`.
 
 ## 4. Post-save editing
 Description: Allow users to correct metadata and notes after capture.

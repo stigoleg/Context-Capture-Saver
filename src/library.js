@@ -6,6 +6,7 @@ import {
   buildCaptureSummaryFromJsonRecord,
   buildCaptureSummaryFromSqlite
 } from "./library-data.js";
+import { buildContextExportPayload, groupChunksByType } from "./document-context.js";
 import { resolveStorageBackendWrites } from "./storage-backend.js";
 import { getSavedDirectoryHandle } from "./storage.js";
 import {
@@ -61,12 +62,24 @@ const pageLabel = /** @type {HTMLElement} */ (document.getElementById("pageLabel
 const detailMeta = /** @type {HTMLElement} */ (document.getElementById("detailMeta"));
 /** @type {HTMLElement} */
 const detailContent = /** @type {HTMLElement} */ (document.getElementById("detailContent"));
+/** @type {HTMLButtonElement} */
+const openContextButton = /** @type {HTMLButtonElement} */ (document.getElementById("openContextButton"));
 /** @type {HTMLInputElement} */
 const chunkSearchInput = /** @type {HTMLInputElement} */ (document.getElementById("chunkSearchInput"));
 /** @type {HTMLElement} */
 const chunkSearchStatus = /** @type {HTMLElement} */ (document.getElementById("chunkSearchStatus"));
 /** @type {HTMLUListElement} */
 const chunkSearchResults = /** @type {HTMLUListElement} */ (document.getElementById("chunkSearchResults"));
+/** @type {HTMLElement} */
+const documentContextPane = /** @type {HTMLElement} */ (document.getElementById("documentContextPane"));
+/** @type {HTMLElement} */
+const documentContextContent = /** @type {HTMLElement} */ (document.getElementById("documentContextContent"));
+/** @type {HTMLButtonElement} */
+const copyContextButton = /** @type {HTMLButtonElement} */ (document.getElementById("copyContextButton"));
+/** @type {HTMLButtonElement} */
+const exportContextButton = /** @type {HTMLButtonElement} */ (document.getElementById("exportContextButton"));
+/** @type {HTMLButtonElement} */
+const closeContextButton = /** @type {HTMLButtonElement} */ (document.getElementById("closeContextButton"));
 
 const state = {
   directoryHandle: null,
@@ -89,7 +102,9 @@ const state = {
   detailCache: new Map(),
   jsonDescriptors: new Map(),
   detailRequestId: 0,
-  warnings: []
+  warnings: [],
+  selectedSummary: null,
+  activeContext: null
 };
 
 let searchDebounceTimer = 0;
@@ -146,6 +161,33 @@ function captureKey(summary) {
     return `json:${summary.storagePath}`;
   }
   return `sqlite:${summary.captureId}`;
+}
+
+function parseDocumentRoute() {
+  const rawHash = String(window.location.hash || "");
+  if (!rawHash.startsWith("#document/")) {
+    return "";
+  }
+  const encoded = rawHash.slice("#document/".length);
+  try {
+    return decodeURIComponent(encoded);
+  } catch (_error) {
+    return "";
+  }
+}
+
+function setDocumentRoute(documentId) {
+  const normalized = String(documentId || "").trim();
+  if (!normalized) {
+    if (window.location.hash.startsWith("#document/")) {
+      history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    }
+    return;
+  }
+  const target = `#document/${encodeURIComponent(normalized)}`;
+  if (window.location.hash !== target) {
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}${target}`);
+  }
 }
 
 function renderOptions(selectElement, values, allLabel) {
@@ -294,6 +336,110 @@ function renderDetail(detail, summary) {
     empty.textContent = "No detail content available for this capture.";
     detailContent.appendChild(empty);
   }
+}
+
+function renderDocumentContext(context) {
+  documentContextContent.textContent = "";
+  if (!context?.document) {
+    documentContextContent.innerHTML = '<p class="empty-message">Document context is unavailable.</p>';
+    return;
+  }
+
+  const overviewList = document.createElement("dl");
+  overviewList.className = "detail-grid";
+  const pairs = [
+    ["Document ID", context.document.document_id || context.document.documentId || ""],
+    ["URL", context.document.url || ""],
+    ["Title", context.document.title || ""],
+    ["Site", context.document.site || ""],
+    ["Captures", String(Array.isArray(context.captures) ? context.captures.length : 0)],
+    ["Chunks", String(Array.isArray(context.chunks) ? context.chunks.length : 0)],
+    ["Entities", String(Array.isArray(context.entities) ? context.entities.length : 0)],
+    ["Edges", String(Array.isArray(context.edges) ? context.edges.length : 0)]
+  ];
+  for (const [label, value] of pairs) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    overviewList.append(dt, dd);
+  }
+  documentContextContent.appendChild(createDetailCard("Overview", overviewList));
+
+  const captures = Array.isArray(context.captures) ? context.captures : [];
+  if (captures.length) {
+    const captureList = document.createElement("ul");
+    captureList.className = "chunk-list";
+    for (const capture of captures.slice(0, 200)) {
+      const item = document.createElement("li");
+      item.textContent = `${capture.capture_type || "capture"} · ${formatDate(capture.saved_at)}`;
+      captureList.appendChild(item);
+    }
+    documentContextContent.appendChild(createDetailCard(`Capture Timeline (${captures.length})`, captureList));
+  }
+
+  const chunkGroups = groupChunksByType(context.chunks || []);
+  if (chunkGroups.length) {
+    const groupList = document.createElement("div");
+    groupList.className = "detail-content";
+    for (const group of chunkGroups) {
+      const list = document.createElement("ul");
+      list.className = "chunk-list";
+      for (const chunk of group.items.slice(0, 30)) {
+        const item = document.createElement("li");
+        const text = String(chunk.text || "").replace(/\s+/g, " ").trim();
+        item.textContent = text.slice(0, 220) + (text.length > 220 ? "..." : "");
+        list.appendChild(item);
+      }
+      groupList.appendChild(createDetailCard(`${group.type} (${group.count})`, list));
+    }
+    documentContextContent.appendChild(createDetailCard("Chunks By Type", groupList));
+  }
+
+  const entities = Array.isArray(context.entities) ? context.entities : [];
+  const edges = Array.isArray(context.edges) ? context.edges : [];
+  if (entities.length || edges.length) {
+    const graphMeta = document.createElement("pre");
+    graphMeta.textContent = JSON.stringify(
+      {
+        entities: entities.map((entity) => ({
+          entity_id: entity.entity_id,
+          entity_type: entity.entity_type,
+          name: entity.name
+        })),
+        edges: edges.map((edge) => ({
+          edge_id: edge.edge_id,
+          predicate: edge.predicate,
+          from_entity_id: edge.from_entity_id,
+          to_entity_id: edge.to_entity_id
+        }))
+      },
+      null,
+      2
+    );
+    documentContextContent.appendChild(createDetailCard("Related Graph Links", graphMeta));
+  }
+}
+
+async function loadDocumentContextForCurrentRoute() {
+  const documentId = parseDocumentRoute();
+  if (!documentId) {
+    state.activeContext = null;
+    documentContextPane.hidden = true;
+    return;
+  }
+
+  if (!state.sqliteSession?.db) {
+    documentContextPane.hidden = false;
+    documentContextContent.innerHTML =
+      '<p class="empty-message">Document context requires SQLite capture storage.</p>';
+    return;
+  }
+
+  const context = getDocumentContext(state.sqliteSession.db, documentId);
+  state.activeContext = context;
+  documentContextPane.hidden = false;
+  renderDocumentContext(context);
 }
 
 async function loadSqliteSession(directoryHandle) {
@@ -473,15 +619,19 @@ function renderLibrary() {
 
   const selected = getSelectedSummary(pageResult.items);
   if (selected) {
+    state.selectedSummary = selected;
     if (!state.selectedKey || state.selectedKey !== selected._key) {
       state.selectedKey = selected._key;
       renderCaptureList(pageResult);
     }
     detailMeta.textContent = `${selected.captureType || "capture"} · ${formatDate(selected.savedAt)}`;
+    openContextButton.disabled = !(selected.backend === "sqlite" && selected.documentId);
   } else {
     state.selectedKey = "";
+    state.selectedSummary = null;
     detailMeta.textContent = "Select a capture to inspect details.";
     detailContent.innerHTML = '<p class="empty-message">No capture selected.</p>';
+    openContextButton.disabled = true;
   }
 }
 
@@ -694,6 +844,8 @@ async function loadLibraryData() {
   state.captures = [];
   state.selectedKey = "";
   state.page = 1;
+  state.activeContext = null;
+  documentContextPane.hidden = true;
 
   const directoryHandle = await getSavedDirectoryHandle();
   state.directoryHandle = directoryHandle;
@@ -764,6 +916,8 @@ async function loadLibraryData() {
   if (chunkSearchInput.value.trim()) {
     runChunkSearch(chunkSearchInput.value);
   }
+
+  await loadDocumentContextForCurrentRoute();
 }
 
 refreshButton.addEventListener("click", () => {
@@ -774,6 +928,55 @@ refreshButton.addEventListener("click", () => {
 
 openSettingsButton.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
+});
+
+openContextButton.addEventListener("click", () => {
+  const selected = state.selectedSummary;
+  if (!selected?.documentId) {
+    return;
+  }
+  setDocumentRoute(selected.documentId);
+  loadDocumentContextForCurrentRoute().catch((error) => {
+    setStatus(error?.message || "Failed to load document context", "error");
+  });
+});
+
+closeContextButton.addEventListener("click", () => {
+  setDocumentRoute("");
+  state.activeContext = null;
+  documentContextPane.hidden = true;
+});
+
+copyContextButton.addEventListener("click", async () => {
+  if (!state.activeContext) {
+    return;
+  }
+  const payload = buildContextExportPayload(state.activeContext);
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    setStatus("Document context copied to clipboard.", "ok");
+  } catch (_error) {
+    setStatus("Clipboard copy failed. Use export instead.", "warning");
+  }
+});
+
+exportContextButton.addEventListener("click", () => {
+  if (!state.activeContext) {
+    return;
+  }
+  const payload = buildContextExportPayload(state.activeContext);
+  const documentId = String(payload.document?.document_id || "document-context");
+  const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${documentId}.context.json`;
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(link.href);
+    link.remove();
+  }, 0);
+  setStatus("Document context exported.", "ok");
 });
 
 searchInput.addEventListener("input", handleSearchChanged);
@@ -810,6 +1013,12 @@ window.addEventListener("unload", () => {
   } catch (_error) {
     // Ignore close errors during unload.
   }
+});
+
+window.addEventListener("hashchange", () => {
+  loadDocumentContextForCurrentRoute().catch((error) => {
+    setStatus(error?.message || "Failed to update document context route", "error");
+  });
 });
 
 loadLibraryData().catch((error) => {
