@@ -7,6 +7,20 @@ export const SQLITE_DB_SCHEMA_NAME = "graph_v4";
 const MAX_OFFSET_SCAN_CHARS = 200000;
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 200;
+const TRACKING_QUERY_PARAM_PREFIXES = ["utm_"];
+const TRACKING_QUERY_PARAM_NAMES = new Set([
+  "fbclid",
+  "gclid",
+  "dclid",
+  "msclkid",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "ref",
+  "ref_src",
+  "spm",
+  "si"
+]);
 const MAX_MIGRATION_HISTORY = 64;
 const MIGRATION_BOOTSTRAP_V4 = "bootstrap_v4";
 const MIGRATION_LEGACY_TO_V4 = "legacy_captures_to_v4";
@@ -102,6 +116,64 @@ function normalizeHostnameFromUrl(rawUrl) {
   } catch (_error) {
     return null;
   }
+}
+
+function shouldStripTrackingParam(rawKey) {
+  const key = String(rawKey || "").toLowerCase().trim();
+  if (!key) {
+    return false;
+  }
+  if (TRACKING_QUERY_PARAM_NAMES.has(key)) {
+    return true;
+  }
+  return TRACKING_QUERY_PARAM_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+function normalizeUrlForStorage(rawUrl) {
+  const normalized = normalizeNullableString(rawUrl);
+  if (!normalized) {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch (_error) {
+    return normalized;
+  }
+
+  const protocol = String(parsed.protocol || "").toLowerCase();
+  const isWebUrl = protocol === "http:" || protocol === "https:";
+  if (!isWebUrl) {
+    return parsed.toString();
+  }
+
+  parsed.hash = "";
+
+  const keptEntries = [];
+  for (const [key, value] of parsed.searchParams.entries()) {
+    if (shouldStripTrackingParam(key)) {
+      continue;
+    }
+    keptEntries.push([key, value]);
+  }
+  keptEntries.sort((left, right) => {
+    if (left[0] !== right[0]) {
+      return left[0].localeCompare(right[0]);
+    }
+    return left[1].localeCompare(right[1]);
+  });
+
+  parsed.search = "";
+  for (const [key, value] of keptEntries) {
+    parsed.searchParams.append(key, value);
+  }
+
+  if (parsed.pathname && parsed.pathname !== "/") {
+    parsed.pathname = parsed.pathname.replace(/\/+$/g, "") || "/";
+  }
+
+  return parsed.toString();
 }
 
 function toSafeIdPart(value, fallback = "unknown") {
@@ -677,15 +749,34 @@ function sourceUrlForRecord(record) {
 
 export function upsertDocument(db, record) {
   const nowIso = normalizeIsoTimestamp(record?.savedAt);
-  const sourceMetadata = record?.source?.metadata && typeof record.source.metadata === "object"
-    ? record.source.metadata
-    : null;
-  const url = sourceUrlForRecord(record);
+  const sourceMetadata =
+    record?.source?.metadata && typeof record.source.metadata === "object"
+      ? record.source.metadata
+      : null;
+  const sourceMetadataForStorage =
+    sourceMetadata && typeof sourceMetadata === "object" ? { ...sourceMetadata } : {};
+  const rawSourceUrl = sourceUrlForRecord(record);
+  const url = normalizeUrlForStorage(rawSourceUrl) || rawSourceUrl;
   const existing = runSelectOne(db, `SELECT document_id FROM documents WHERE url = ? LIMIT 1;`, [url]);
   const documentId = existing?.document_id || newId("document");
-  const canonicalUrl = normalizeNullableString(
-    sourceMetadata?.canonicalUrl ?? sourceMetadata?.canonicalURL ?? null
+  const canonicalUrlRaw = normalizeNullableString(
+    sourceMetadataForStorage?.canonicalUrl ?? sourceMetadataForStorage?.canonicalURL ?? null
   );
+  const canonicalUrl = normalizeUrlForStorage(canonicalUrlRaw);
+
+  sourceMetadataForStorage._capture = {
+    ...(sourceMetadataForStorage?._capture && typeof sourceMetadataForStorage._capture === "object"
+      ? sourceMetadataForStorage._capture
+      : {}),
+    rawSourceUrl,
+    normalizedSourceUrl: url
+  };
+  if (canonicalUrlRaw) {
+    sourceMetadataForStorage._capture.rawCanonicalUrl = canonicalUrlRaw;
+  }
+  if (canonicalUrl) {
+    sourceMetadataForStorage._capture.normalizedCanonicalUrl = canonicalUrl;
+  }
 
   db.run(
     `
@@ -716,7 +807,7 @@ export function upsertDocument(db, record) {
       normalizeNullableString(record?.source?.site),
       normalizeNullableString(record?.source?.language),
       normalizeNullableString(record?.source?.publishedAt),
-      encodeJson(sourceMetadata),
+      encodeJson(sourceMetadataForStorage),
       nowIso
     ]
   );
@@ -2159,7 +2250,7 @@ function escapeLikeQuery(text) {
 }
 
 export function getDocumentByUrl(db, url) {
-  const normalized = normalizeNullableString(url);
+  const normalized = normalizeUrlForStorage(url) || normalizeNullableString(url);
   if (!normalized) {
     return null;
   }

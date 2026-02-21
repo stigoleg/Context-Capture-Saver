@@ -526,7 +526,9 @@ test("getDocumentByUrl resolves canonical_url and comment-only notes remain sear
     saveRecordToDbV2(db, record);
 
     const canonicalDoc = getDocumentByUrl(db, "https://example.com/article");
-    assert.equal(canonicalDoc?.url, "https://example.com/article?utm_source=test");
+    assert.equal(canonicalDoc?.url, "https://example.com/article");
+    assert.equal(canonicalDoc?.canonical_url, "https://example.com/article");
+    assert.equal(canonicalDoc?.metadata?._capture?.rawSourceUrl, "https://example.com/article?utm_source=test");
 
     const noteRow = queryRows(
       db,
@@ -542,6 +544,52 @@ test("getDocumentByUrl resolves canonical_url and comment-only notes remain sear
 
     const hits = searchChunksByText(db, "orphan note", 5);
     assert.equal(hits.length >= 1, true);
+  } finally {
+    db.close();
+  }
+});
+
+test("upsertDocument normalizes equivalent URL variants into one document", () => {
+  const db = new SQL.Database();
+  try {
+    const firstRecord = {
+      id: "capture-url-normalize-1",
+      captureType: "selected_text",
+      savedAt: "2026-02-21T16:00:00.000Z",
+      source: {
+        url: "https://example.com/path/?utm_source=newsletter&id=42",
+        title: "Normalized URL",
+        site: "example.com",
+        language: "en",
+        metadata: {}
+      },
+      content: {
+        documentText: "first body",
+        contentHash: "hash-url-normalize-1",
+        annotations: [],
+        transcriptSegments: null
+      }
+    };
+
+    const secondRecord = {
+      ...firstRecord,
+      id: "capture-url-normalize-2",
+      savedAt: "2026-02-21T16:10:00.000Z",
+      source: {
+        ...firstRecord.source,
+        url: "https://example.com/path?id=42&utm_medium=email#fragment"
+      }
+    };
+
+    saveRecordToDbV2(db, firstRecord);
+    saveRecordToDbV2(db, secondRecord);
+
+    assert.equal(scalar(db, `SELECT COUNT(*) FROM documents;`), 1);
+    assert.equal(scalar(db, `SELECT COUNT(*) FROM captures;`), 2);
+    assert.equal(
+      scalar(db, `SELECT url FROM documents LIMIT 1;`),
+      "https://example.com/path?id=42"
+    );
   } finally {
     db.close();
   }
