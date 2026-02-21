@@ -122,6 +122,17 @@ test("ensureSchemaV2 creates latest graph-ready tables on a new database", () =>
 
     const chunkColumns = new Set(queryRows(db, `PRAGMA table_info(chunks);`).map((row) => row.name));
     assert.equal(chunkColumns.has("chunk_index"), true);
+
+    const documentColumns = new Set(
+      queryRows(db, `PRAGMA table_info(documents);`).map((row) => row.name)
+    );
+    assert.equal(documentColumns.has("normalized_url"), true);
+
+    const indexNames = new Set(
+      queryRows(db, `SELECT name FROM sqlite_master WHERE type = 'index';`).map((row) => row.name)
+    );
+    assert.equal(indexNames.has("documents_canonical_url"), true);
+    assert.equal(indexNames.has("documents_normalized_url"), true);
   } finally {
     db.close();
   }
@@ -217,7 +228,7 @@ test("migrateLegacyToV2 migrates legacy captures rows into documents/captures/ch
     );
     assert.equal(
       scalar(db, `SELECT value FROM meta WHERE key = 'last_migration_id';`),
-      "legacy_captures_to_v4"
+      "legacy_captures_to_v5"
     );
 
     const chunkTypes = new Set(queryRows(db, `SELECT chunk_type FROM chunks;`).map((row) => row.chunk_type));
@@ -590,6 +601,56 @@ test("upsertDocument normalizes equivalent URL variants into one document", () =
       scalar(db, `SELECT url FROM documents LIMIT 1;`),
       "https://example.com/path?id=42"
     );
+  } finally {
+    db.close();
+  }
+});
+
+test("getDocumentByUrl uses normalized-first strategy with indexed lookup", () => {
+  const db = new SQL.Database();
+  try {
+    ensureSchemaV2(db);
+
+    for (let index = 0; index < 120; index += 1) {
+      const record = {
+        id: `capture-plan-${index}`,
+        captureType: "selected_text",
+        savedAt: `2026-02-21T19:${String(index % 60).padStart(2, "0")}:00.000Z`,
+        source: {
+          url: `https://example.com/plan/${index}?utm_source=test&id=${index}`,
+          title: `Plan ${index}`,
+          site: "example.com",
+          language: "en",
+          metadata: {}
+        },
+        content: {
+          documentText: `plan benchmark text ${index}`,
+          contentHash: `hash-plan-${index}`,
+          annotations: [],
+          transcriptSegments: null
+        }
+      };
+      saveRecordToDbV2(db, record, { ensureSchema: false, useTransaction: true });
+    }
+
+    const planRows = queryRows(
+      db,
+      `EXPLAIN QUERY PLAN SELECT * FROM documents WHERE normalized_url = ? LIMIT 1;`,
+      ["https://example.com/plan/42?id=42"]
+    );
+    const detail = String(planRows[0]?.detail || "");
+    assert.equal(/documents_normalized_url/i.test(detail), true);
+
+    const startedAt = Date.now();
+    for (let index = 0; index < 200; index += 1) {
+      const doc = getDocumentByUrl(
+        db,
+        `https://example.com/plan/42?id=42&utm_medium=email#fragment-${index}`
+      );
+      assert.equal(doc?.url, "https://example.com/plan/42?id=42");
+    }
+    const durationMs = Date.now() - startedAt;
+    assert.equal(durationMs < 400, true);
   } finally {
     db.close();
   }

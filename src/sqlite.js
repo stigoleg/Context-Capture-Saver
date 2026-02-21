@@ -1,8 +1,8 @@
 import initSqlJs from "./vendor/sql-wasm.js";
 
 export const DEFAULT_DB_NAME = "context-captures.sqlite";
-export const SQLITE_DB_SCHEMA_VERSION = 4;
-export const SQLITE_DB_SCHEMA_NAME = "graph_v4";
+export const SQLITE_DB_SCHEMA_VERSION = 5;
+export const SQLITE_DB_SCHEMA_NAME = "graph_v5";
 
 const MAX_OFFSET_SCAN_CHARS = 200000;
 const DEFAULT_LIST_LIMIT = 20;
@@ -22,9 +22,9 @@ const TRACKING_QUERY_PARAM_NAMES = new Set([
   "si"
 ]);
 const MAX_MIGRATION_HISTORY = 64;
-const MIGRATION_BOOTSTRAP_V4 = "bootstrap_v4";
-const MIGRATION_LEGACY_TO_V4 = "legacy_captures_to_v4";
-const MIGRATION_ADD_CHUNK_INDEX = "chunk_index_backfill_v4";
+const MIGRATION_BOOTSTRAP_V5 = "bootstrap_v5";
+const MIGRATION_BACKFILL_V5 = "backfill_v5";
+const MIGRATION_LEGACY_TO_V5 = "legacy_captures_to_v5";
 
 let sqlJsPromise;
 
@@ -357,6 +357,7 @@ function ensureCoreTablesV2(db) {
     CREATE TABLE IF NOT EXISTS documents (
       document_id TEXT PRIMARY KEY,
       url TEXT NOT NULL UNIQUE,
+      normalized_url TEXT NULL,
       canonical_url TEXT NULL,
       title TEXT NULL,
       site TEXT NULL,
@@ -368,6 +369,8 @@ function ensureCoreTablesV2(db) {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS documents_site ON documents(site);`);
   db.run(`CREATE INDEX IF NOT EXISTS documents_published_at ON documents(published_at);`);
+  db.run(`CREATE INDEX IF NOT EXISTS documents_canonical_url ON documents(canonical_url);`);
+  db.run(`CREATE INDEX IF NOT EXISTS documents_normalized_url ON documents(normalized_url);`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS captures (
@@ -522,9 +525,55 @@ function ensureCoreTablesV2(db) {
   `);
 }
 
-function ensureSchemaColumnsV4(db) {
+function ensureSchemaColumnsV5(db) {
+  ensureColumnInTable(db, "documents", "normalized_url", "TEXT", null);
+  db.run(`CREATE INDEX IF NOT EXISTS documents_canonical_url ON documents(canonical_url);`);
+  db.run(`CREATE INDEX IF NOT EXISTS documents_normalized_url ON documents(normalized_url);`);
   ensureColumnInTable(db, "chunks", "is_preview", "INTEGER", "0");
   ensureColumnInTable(db, "chunks", "chunk_index", "INTEGER", null);
+}
+
+function backfillDocumentNormalizedUrls(db) {
+  if (!tableExists(db, "documents")) {
+    return 0;
+  }
+
+  const rows = runSelectAll(
+    db,
+    `
+      SELECT document_id, url, canonical_url, normalized_url
+      FROM documents
+      ORDER BY created_at ASC, document_id ASC;
+    `
+  );
+  if (rows.length === 0) {
+    return 0;
+  }
+
+  const updateStmt = db.prepare(
+    `UPDATE documents SET normalized_url = ?, canonical_url = ? WHERE document_id = ?;`
+  );
+  let updated = 0;
+
+  try {
+    for (const row of rows) {
+      const normalizedUrl = normalizeUrlForStorage(row.url) || normalizeNullableString(row.url);
+      const normalizedCanonical =
+        normalizeUrlForStorage(row.canonical_url) || normalizeNullableString(row.canonical_url);
+      if (
+        normalizedUrl === (row.normalized_url ?? null) &&
+        normalizedCanonical === (row.canonical_url ?? null)
+      ) {
+        continue;
+      }
+      updateStmt.run([normalizedUrl, normalizedCanonical, row.document_id]);
+      updated += 1;
+    }
+  } finally {
+    updateStmt.free();
+  }
+
+  return updated;
 }
 
 function backfillChunkIndexes(db) {
@@ -757,7 +806,24 @@ export function upsertDocument(db, record) {
     sourceMetadata && typeof sourceMetadata === "object" ? { ...sourceMetadata } : {};
   const rawSourceUrl = sourceUrlForRecord(record);
   const url = normalizeUrlForStorage(rawSourceUrl) || rawSourceUrl;
-  const existing = runSelectOne(db, `SELECT document_id FROM documents WHERE url = ? LIMIT 1;`, [url]);
+  const existing = runSelectOne(
+    db,
+    `
+      SELECT document_id
+      FROM documents
+      WHERE normalized_url = ? OR url = ? OR canonical_url = ?
+      ORDER BY
+        CASE
+          WHEN normalized_url = ? THEN 0
+          WHEN url = ? THEN 1
+          ELSE 2
+        END ASC,
+        created_at ASC,
+        document_id ASC
+      LIMIT 1;
+    `,
+    [url, url, url, url, url]
+  );
   const documentId = existing?.document_id || newId("document");
   const canonicalUrlRaw = normalizeNullableString(
     sourceMetadataForStorage?.canonicalUrl ?? sourceMetadataForStorage?.canonicalURL ?? null
@@ -783,6 +849,7 @@ export function upsertDocument(db, record) {
       INSERT INTO documents (
         document_id,
         url,
+        normalized_url,
         canonical_url,
         title,
         site,
@@ -790,8 +857,10 @@ export function upsertDocument(db, record) {
         published_at,
         metadata_json,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(url) DO UPDATE SET
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(document_id) DO UPDATE SET
+        url = COALESCE(excluded.url, documents.url),
+        normalized_url = COALESCE(excluded.normalized_url, documents.normalized_url),
         canonical_url = COALESCE(excluded.canonical_url, documents.canonical_url),
         title = COALESCE(excluded.title, documents.title),
         site = COALESCE(excluded.site, documents.site),
@@ -801,6 +870,7 @@ export function upsertDocument(db, record) {
     `,
     [
       documentId,
+      url,
       url,
       canonicalUrl,
       normalizeNullableString(record?.source?.title),
@@ -1997,10 +2067,11 @@ export function migrateLegacyToV2(db) {
 
   if (!hasLegacyNamedCaptures && !hasLegacyArchive) {
     ensureCoreTablesV2(db);
-    ensureSchemaColumnsV4(db);
+    ensureSchemaColumnsV5(db);
     const hadFts = hasFtsTable(db);
     const hasFts = ensureFtsIfPossible(db);
     backfillDerivedTablesFromExistingCaptures(db);
+    const normalizedUrlsBackfilled = backfillDocumentNormalizedUrls(db);
     const chunkIndexesBackfilled = backfillChunkIndexes(db);
     pruneOrphanGraphRows(db);
     if (hasFts) {
@@ -2008,12 +2079,14 @@ export function migrateLegacyToV2(db) {
         rebuildFtsFromChunks(db);
       }
     }
+    setMetaValue(db, "backfill_normalized_urls", String(normalizedUrlsBackfilled));
     setMetaValue(db, "backfill_chunk_indexes", String(chunkIndexesBackfilled));
     setDbSchemaName(db, SQLITE_DB_SCHEMA_NAME);
     setDbSchemaVersion(db, SQLITE_DB_SCHEMA_VERSION);
     if (schemaVersionBefore < SQLITE_DB_SCHEMA_VERSION) {
-      recordMigration(db, schemaVersionBefore === 0 ? MIGRATION_BOOTSTRAP_V4 : MIGRATION_ADD_CHUNK_INDEX, {
+      recordMigration(db, schemaVersionBefore === 0 ? MIGRATION_BOOTSTRAP_V5 : MIGRATION_BACKFILL_V5, {
         legacy_rows_migrated: 0,
+        normalized_urls_backfilled: normalizedUrlsBackfilled,
         chunk_indexes_backfilled: chunkIndexesBackfilled
       });
     }
@@ -2027,7 +2100,7 @@ export function migrateLegacyToV2(db) {
     }
 
     ensureCoreTablesV2(db);
-    ensureSchemaColumnsV4(db);
+    ensureSchemaColumnsV5(db);
     const hadFts = hasFtsTable(db);
     const hasFts = ensureFtsIfPossible(db);
 
@@ -2047,6 +2120,7 @@ export function migrateLegacyToV2(db) {
     }
 
     backfillDerivedTablesFromExistingCaptures(db);
+    const normalizedUrlsBackfilled = backfillDocumentNormalizedUrls(db);
     const chunkIndexesBackfilled = backfillChunkIndexes(db);
     pruneOrphanGraphRows(db);
     if (hasFts) {
@@ -2058,9 +2132,11 @@ export function migrateLegacyToV2(db) {
     setDbSchemaVersion(db, SQLITE_DB_SCHEMA_VERSION);
     setMetaValue(db, "legacy_migrated_from", "captures_legacy");
     setMetaValue(db, "legacy_migrated_at", new Date().toISOString());
+    setMetaValue(db, "backfill_normalized_urls", String(normalizedUrlsBackfilled));
     setMetaValue(db, "backfill_chunk_indexes", String(chunkIndexesBackfilled));
-    recordMigration(db, MIGRATION_LEGACY_TO_V4, {
+    recordMigration(db, MIGRATION_LEGACY_TO_V5, {
       legacy_rows_migrated: migrated,
+      normalized_urls_backfilled: normalizedUrlsBackfilled,
       chunk_indexes_backfilled: chunkIndexesBackfilled
     });
     db.run("COMMIT;");
@@ -2089,13 +2165,14 @@ export function ensureSchemaV2(db) {
   }
 
   ensureCoreTablesV2(db);
-  ensureSchemaColumnsV4(db);
+  ensureSchemaColumnsV5(db);
   const hadFts = hasFtsTable(db);
   const hasFts = ensureFtsIfPossible(db);
   if (schemaVersion < SQLITE_DB_SCHEMA_VERSION) {
     db.run("BEGIN;");
     try {
       const backfillStats = backfillDerivedTablesFromExistingCaptures(db);
+      const normalizedUrlsBackfilled = backfillDocumentNormalizedUrls(db);
       const chunkIndexesBackfilled = backfillChunkIndexes(db);
       pruneOrphanGraphRows(db);
       setMetaValue(db, "backfill_annotations", String(backfillStats.annotationsBackfilled || 0));
@@ -2105,15 +2182,17 @@ export function ensureSchemaV2(db) {
         String(backfillStats.transcriptSegmentsBackfilled || 0)
       );
       setMetaValue(db, "backfill_graph_rows", String(backfillStats.graphBackfilled || 0));
+      setMetaValue(db, "backfill_normalized_urls", String(normalizedUrlsBackfilled));
       setMetaValue(db, "backfill_chunk_indexes", String(chunkIndexesBackfilled));
       setMetaValue(db, "backfill_completed_at", new Date().toISOString());
       setMetaValue(db, "backfill_fts_rows", String(hasFts ? rebuildFtsFromChunks(db) : 0));
       setDbSchemaName(db, SQLITE_DB_SCHEMA_NAME);
       setDbSchemaVersion(db, SQLITE_DB_SCHEMA_VERSION);
-      recordMigration(db, schemaVersion === 0 ? MIGRATION_BOOTSTRAP_V4 : MIGRATION_ADD_CHUNK_INDEX, {
+      recordMigration(db, schemaVersion === 0 ? MIGRATION_BOOTSTRAP_V5 : MIGRATION_BACKFILL_V5, {
         annotations_backfilled: backfillStats.annotationsBackfilled || 0,
         transcript_segments_backfilled: backfillStats.transcriptSegmentsBackfilled || 0,
         graph_rows_backfilled: backfillStats.graphBackfilled || 0,
+        normalized_urls_backfilled: normalizedUrlsBackfilled,
         chunk_indexes_backfilled: chunkIndexesBackfilled
       });
       db.run("COMMIT;");
@@ -2256,8 +2335,21 @@ export function getDocumentByUrl(db, url) {
   }
   const row = runSelectOne(
     db,
-    `SELECT * FROM documents WHERE url = ? OR canonical_url = ? LIMIT 1;`,
-    [normalized, normalized]
+    `
+      SELECT *
+      FROM documents
+      WHERE normalized_url = ? OR url = ? OR canonical_url = ?
+      ORDER BY
+        CASE
+          WHEN normalized_url = ? THEN 0
+          WHEN url = ? THEN 1
+          ELSE 2
+        END ASC,
+        created_at ASC,
+        document_id ASC
+      LIMIT 1;
+    `,
+    [normalized, normalized, normalized, normalized, normalized]
   );
   return mapDocumentRow(row);
 }
